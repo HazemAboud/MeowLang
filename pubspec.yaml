@@ -1,0 +1,40 @@
+name: meow_lang
+description: "An AI-powered Meow Translator"
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  persistent_bottom_nav_bar: ^6.2.1
+  provider: ^6.1.2
+  audioplayers: ^6.5.1
+  curved_navigation_bar: ^1.0.6
+  sqflite: ^2.4.2
+  record: ^6.1.2
+  permission_handler: ^12.0.1
+  path_provider: ^2.1.2
+  http: ^1.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  rename_app: ^1.6.5
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.1
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/audio/
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/images/icon.png"
+  remove_alpha_ios: true
