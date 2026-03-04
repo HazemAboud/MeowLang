@@ -14,7 +14,9 @@ class Translation {
   });
 
   Translation.fromJson(Map<String, dynamic> json)
-      : id = json['translationId'],
+      : id = json['translationId'] is int
+            ? json['translationId']
+            : int.tryParse(json['translationId']?.toString() ?? ''),
         audioPath = json['audioPath'],
         className = json['className'],
         confidence = (json['confidence'] as num).toDouble(),

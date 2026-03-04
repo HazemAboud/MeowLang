@@ -1,28 +1,54 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:audioplayers/audioplayers.dart';
-import 'package:meow_lang/DB/database_helper.dart';
+import 'package:http/http.dart' as http;
 import 'package:meow_lang/models/cat.dart';
-import 'package:meow_lang/models/historyRecord.dart';
+import 'package:meow_lang/server_config.dart';
+import 'package:meow_lang/models/user.dart';
 
 class HistoryTab extends StatefulWidget {
-  const HistoryTab({super.key});
+  /// If [initialCat] is non-null the tab will show history only for that cat
+  /// and hide the cat selector dropdown.  This makes the widget reusable by
+  /// [CatsTab].
+  const HistoryTab({super.key, this.initialCat});
+
+  final Cat? initialCat;
 
   @override
   State<HistoryTab> createState() => _HistoryTabState();
 }
 
 class _HistoryTabState extends State<HistoryTab> {
-  List<Cat> _cats = [];
   Cat? _selectedCat;
-  List<HistoryRecord> _history = [];
+  List<Map<String, dynamic>> _history = [];
   bool _isLoading = true;
   String? _error;
   final AudioPlayer _audioPlayer = AudioPlayer();
+  DateTime? _selectedDate;
 
   @override
   void initState() {
     super.initState();
-    _loadData();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (widget.initialCat != null) {
+        // Detail view: load history for the specific cat
+        setState(() {
+          _selectedCat = widget.initialCat;
+          _isLoading = true;
+        });
+        _loadHistoryForCat(widget.initialCat!.catId!);
+      } else {
+        // Main tab view: listen for auth changes
+        if (User.isLoggedIn) {
+          _loadAllHistory();
+        } else {
+          setState(() {
+            _isLoading = false;
+          });
+        }
+      }
+    });
   }
 
   @override
@@ -32,29 +58,26 @@ class _HistoryTabState extends State<HistoryTab> {
     super.dispose();
   }
 
-  Future<void> _loadData() async {
+  Future<void> _loadAllHistory() async {
     try {
       setState(() {
         _isLoading = true;
         _error = null;
       });
+      final user = User.currentUser;
+      if (user == null) {
+        throw Exception("User not logged in");
+      }
 
-      final cats = await DatabaseHelper.instance.getCats();
-      final history = await DatabaseHelper.instance.readAllHistory();
-
+      final response = await http.get(Uri.parse(serverUrl('/history/user/${user.userId}')));
+      if (response.statusCode != 200) {
+        throw Exception('Failed to load history: ${response.body}');
+      }
+      final List<dynamic> historyMaps = jsonDecode(response.body);
       if (mounted) {
         setState(() {
-          _cats = cats;
-          // Default to first cat if none selected, or maintain selection if valid
-          if (_cats.isNotEmpty) {
-            if (_selectedCat == null || !_cats.any((c) => c.catId == _selectedCat!.catId)) {
-              _selectedCat = _cats.first;
-            }
-          } else {
-            _selectedCat = null;
-          }
-          _history = history;
           _isLoading = false;
+          _history = historyMaps.cast<Map<String, dynamic>>();
         });
       }
     } catch (e) {
@@ -68,17 +91,67 @@ class _HistoryTabState extends State<HistoryTab> {
     }
   }
 
-  List<HistoryRecord> get _filteredHistory {
-    if (_selectedCat == null || _selectedCat!.catId == null) return [];
-    return _history.where((r) => r.catId == _selectedCat!.catId).toList();
+  Future<void> _loadHistoryForCat(int catId) async {
+    try {
+      final response = await http.get(Uri.parse(serverUrl('/history/$catId')));
+      if (response.statusCode != 200) {
+        throw Exception('Failed to load history for cat $catId: ${response.body}');
+      }
+      final List<dynamic> historyMaps = jsonDecode(response.body);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _history = historyMaps.cast<Map<String, dynamic>>();
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading history for cat $catId: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate ?? now,
+      firstDate: DateTime(2020),
+      lastDate: now,
+    );
+    if (picked != null) {
+      setState(() => _selectedDate = picked);
+    }
+  }
+
+  List<Map<String, dynamic>> get _filteredHistory {
+    if (_selectedDate == null) {
+      return _history;
+    }
+    return _history.where((record) {
+      final dtString = (record['hist_time'] ?? record['translation_datetime']) as String?;
+      if (dtString == null) return false;
+      try {
+        final dt = DateTime.parse(dtString);
+        return dt.year == _selectedDate!.year &&
+            dt.month == _selectedDate!.month &&
+            dt.day == _selectedDate!.day;
+      } catch (e) {
+        return false;
+      }
+    }).toList();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('History'),
-      ),
+      // Only show app bar if it's the main tab, not a detail screen
+      appBar: widget.initialCat == null
+          ? AppBar(
+              title: const Text('History'),
+            )
+          : null,
       body: _buildContent(),
     );
   }
@@ -109,8 +182,7 @@ class _HistoryTabState extends State<HistoryTab> {
               ),
               const SizedBox(height: 24),
               ElevatedButton.icon(
-                onPressed: _loadData,
-                icon: const Icon(Icons.refresh),
+                onPressed: () {if (mounted) widget.initialCat != null ? _loadHistoryForCat(widget.initialCat!.catId!) : _loadAllHistory();},
                 label: const Text('Retry'),
               ),
             ],
@@ -119,21 +191,21 @@ class _HistoryTabState extends State<HistoryTab> {
       );
     }
 
-    if (_cats.isEmpty) {
+    if (!User.isLoggedIn && widget.initialCat == null) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.pets, size: 64, color: Colors.grey.shade300),
+            Icon(Icons.login, size: 64, color: Colors.grey.shade300),
             const SizedBox(height: 16),
             Text(
-              'No Cats Registered',
+              'Please Log In',
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                color: Colors.grey.shade600,
-              ),
+                    color: Colors.grey.shade600,
+                  ),
             ),
             const SizedBox(height: 8),
-            const Text('Register a cat in the Profile tab to view history.'),
+            const Text('Log in on the Profile tab to view history.'),
           ],
         ),
       );
@@ -143,53 +215,39 @@ class _HistoryTabState extends State<HistoryTab> {
 
     return Column(
       children: [
-        Container(
-          padding: const EdgeInsets.all(16.0),
-          decoration: BoxDecoration(
-            color: Theme.of(context).cardColor,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 4,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              const Text('Show history for: '),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey.shade300),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<Cat>(
-                      value: _selectedCat,
-                      isExpanded: true,
-                      isDense: true,
-                      items: _cats.map((cat) {
-                        return DropdownMenuItem(
-                          value: cat,
-                          child: Text(cat.name),
-                        );
-                      }).toList(),
-                      onChanged: (val) {
-                        setState(() {
-                          _selectedCat = val;
-                        });
-                      },
-                    ),
-                  ),
+        // show selector only if we weren't prefiltered by an initial cat
+        if (widget.initialCat == null)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            child: Row(
+              children: [
+                Text(
+                  _selectedDate == null
+                      ? 'All History'
+                      : 'Date: ${DateFormat.yMMMd().format(_selectedDate!)}',
+                  style: Theme.of(context).textTheme.titleMedium,
                 ),
-              ),
-            ],
+                const Spacer(),
+                if (_selectedDate != null)
+                  IconButton(
+                    icon: const Icon(Icons.clear),
+                    onPressed: () => setState(() => _selectedDate = null),
+                    tooltip: 'Clear filter',
+                  ),
+                IconButton(
+                  icon: const Icon(Icons.calendar_today),
+                  onPressed: _pickDate,
+                  tooltip: 'Filter by date',
+                ),
+              ],
+            ),
           ),
-        ),
         Expanded(
+           child: RefreshIndicator(
+              onRefresh: () => widget.initialCat != null 
+                  ? _loadHistoryForCat(widget.initialCat!.catId!) 
+                  : _loadAllHistory(),
+            
           child: filteredList.isEmpty
               ? Center(
                   child: Column(
@@ -198,7 +256,7 @@ class _HistoryTabState extends State<HistoryTab> {
                       Icon(Icons.history, size: 48, color: Colors.grey.shade300),
                       const SizedBox(height: 16),
                       Text(
-                        'No history found for ${_selectedCat?.name}',
+                        'No history found.',
                         style: TextStyle(color: Colors.grey.shade600),
                       ),
                     ],
@@ -209,8 +267,16 @@ class _HistoryTabState extends State<HistoryTab> {
                   itemCount: filteredList.length,
                   itemBuilder: (context, index) {
                     final record = filteredList[index];
-                    final translation = record.translation;
-                    
+                    final text = record['textTranslation']?.toString() ?? 'Unknown';
+                    final dtString = record['hist_time'] as String?;
+                    final catName = record['catName'] ?? _selectedCat?.name ?? 'Unknown Cat';
+                    String subtitle = '';
+                    if (dtString != null) {
+                      try {
+                        subtitle = DateTime.parse(dtString).toLocal().toString().substring(0, 16);
+                      } catch (_) { /* ignore parse error */ }
+                    }
+
                     return Card(
                       margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
                       child: ListTile(
@@ -219,25 +285,24 @@ class _HistoryTabState extends State<HistoryTab> {
                           child: Icon(Icons.graphic_eq, color: Theme.of(context).primaryColor),
                         ),
                         title: Text(
-                          record.textTranslation ?? 'Unknown',
+                          text,
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
-                        subtitle: Text(
-                          translation?.dateTime?.toString().substring(0, 16) ?? '',
-                          style: Theme.of(context).textTheme.bodySmall,
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (widget.initialCat == null)
+                              Text(catName, style: TextStyle(color: Theme.of(context).primaryColor, fontWeight: FontWeight.w500, fontSize: 12)),
+                            if (subtitle.isNotEmpty)
+                              Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+                          ],
                         ),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.play_circle_outline),
-                          onPressed: () {
-                            if (translation?.audioPath != null) {
-                              _audioPlayer.play(DeviceFileSource(translation!.audioPath!));
-                            }
-                          },
-                        ),
+                        trailing: null, // Audio playback is removed
                       ),
                     );
                   },
                 ),
+           )
         ),
       ],
     );

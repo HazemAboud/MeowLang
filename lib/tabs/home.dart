@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:meow_lang/tabs/analytics.dart';
 import 'package:meow_lang/tabs/history.dart';
+import 'package:meow_lang/tabs/meows.dart';
+import 'package:meow_lang/tabs/cats.dart';
 import 'package:curved_navigation_bar/curved_navigation_bar.dart';
 import 'appbar.dart';
 import 'translate.dart';
-import 'meows.dart';
 import 'profile.dart';
 import 'theme.dart';
 import 'package:provider/provider.dart';
@@ -53,7 +53,6 @@ class _HomeState extends State<Home> {
                 _showColorPalette(context);
               },
               child: const Row(
-               
                 children: [
                   Icon(Icons.color_lens),
                   SizedBox(width: 12),
@@ -61,7 +60,7 @@ class _HomeState extends State<Home> {
                 ],
               ),
             ),
-            SizedBox(height:10),
+            SizedBox(height: 10),
             TextButton(
               style: TextButton.styleFrom(
                 backgroundColor: Colors.white,
@@ -71,10 +70,10 @@ class _HomeState extends State<Home> {
               ),
               onPressed: () {
                 Navigator.pop(context);
-                Navigator.push(context, MaterialPageRoute(builder: (context) => HistoryTab()));
-              },  
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (context) => HistoryTab()));
+              },
               child: const Row(
-               
                 children: [
                   Icon(Icons.history),
                   SizedBox(width: 12),
@@ -82,6 +81,7 @@ class _HomeState extends State<Home> {
                 ],
               ),
             ),
+            
           ],
         ),
       ),
@@ -91,8 +91,8 @@ class _HomeState extends State<Home> {
         height: 60.0,
         items: const <Widget>[
           Icon(Icons.mic_none, size: 30, color: Colors.white),
+          Icon(Icons.music_note, size: 30, color: Colors.white),
           Icon(Icons.pets, size: 30, color: Colors.white),
-          Icon(Icons.bar_chart, size: 30, color: Colors.white),
           Icon(Icons.person, size: 30, color: Colors.white),
         ],
         color: primary,
@@ -107,20 +107,33 @@ class _HomeState extends State<Home> {
       body: index == 0
           ? TranslateMenu()
           : index == 1
-          ? MeowMenu()
-          : index == 2
-          ? AnalyticsTab()
-          : ProfileMenu(),
+              ? MeowMenu()
+              : index == 2
+                  ? CatsTab()
+                  : ProfileMenu(),
     );
   }
 
   void _showColorPalette(BuildContext context) {
     final List<Color> colors = [
-      Colors.red, Colors.pink, Colors.purple, Colors.deepPurple,
-      Colors.indigo, Colors.blue, Colors.lightBlue, Colors.cyan,
-      Colors.teal, Colors.green, Colors.lightGreen, Colors.lime,
-      Colors.yellow, Colors.amber, Colors.orange, Colors.deepOrange,
-      Colors.brown, Colors.blueGrey,
+      Colors.red,
+      Colors.pink,
+      Colors.purple,
+      Colors.deepPurple,
+      Colors.indigo,
+      Colors.blue,
+      Colors.lightBlue,
+      Colors.cyan,
+      Colors.teal,
+      Colors.green,
+      Colors.lightGreen,
+      Colors.lime,
+      Colors.yellow,
+      Colors.amber,
+      Colors.orange,
+      Colors.deepOrange,
+      Colors.brown,
+      Colors.blueGrey,
     ];
 
     showDialog(
@@ -132,16 +145,19 @@ class _HomeState extends State<Home> {
             spacing: 12,
             runSpacing: 12,
             alignment: WrapAlignment.center,
-            children: colors.map((color) => GestureDetector(
-              onTap: () {
-                Provider.of<ThemeProvider>(context, listen: false).setColor(color);
-                Navigator.pop(context);
-              },
-              child: CircleAvatar(
-                backgroundColor: color,
-                radius: 22,
-              ),
-            )).toList(),
+            children: colors
+                .map((color) => GestureDetector(
+                      onTap: () {
+                        Provider.of<ThemeProvider>(context, listen: false)
+                            .setColor(color);
+                        Navigator.pop(context);
+                      },
+                      child: CircleAvatar(
+                        backgroundColor: color,
+                        radius: 22,
+                      ),
+                    ))
+                .toList(),
           ),
         ),
         actions: [
