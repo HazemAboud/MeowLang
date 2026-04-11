@@ -1,11 +1,12 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:audioplayers/audioplayers.dart';
-import 'package:http/http.dart' as http;
 import 'package:meow_lang/models/cat.dart';
-import 'package:meow_lang/server_config.dart';
+import 'package:meow_lang/models/historyRecord.dart';
 import 'package:meow_lang/models/user.dart';
+import 'package:meow_lang/backend/firebase_service.dart';
+
+// Assuming your legacy User model is still used for session management, 
+// but we fetch via FirebaseService now.
 
 class HistoryTab extends StatefulWidget {
   /// If [initialCat] is non-null the tab will show history only for that cat
@@ -21,10 +22,10 @@ class HistoryTab extends StatefulWidget {
 
 class _HistoryTabState extends State<HistoryTab> {
   Cat? _selectedCat;
-  List<Map<String, dynamic>> _history = [];
+  List<HistoryRecord> _history = [];
   bool _isLoading = true;
   String? _error;
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  final FirebaseService _db = FirebaseService();
   DateTime? _selectedDate;
 
   @override
@@ -53,8 +54,6 @@ class _HistoryTabState extends State<HistoryTab> {
 
   @override
   void dispose() {
-    _audioPlayer.stop();
-    _audioPlayer.dispose();
     super.dispose();
   }
 
@@ -64,20 +63,15 @@ class _HistoryTabState extends State<HistoryTab> {
         _isLoading = true;
         _error = null;
       });
-      final user = User.currentUser;
-      if (user == null) {
-        throw Exception("User not logged in");
-      }
+      if (!User.isLoggedIn) throw Exception("User not logged in");
+      final user = User.currentUser!;
 
-      final response = await http.get(Uri.parse(serverUrl('/history/user/${user.userId}')));
-      if (response.statusCode != 200) {
-        throw Exception('Failed to load history: ${response.body}');
-      }
-      final List<dynamic> historyMaps = jsonDecode(response.body);
+      final records = await _db.getHistoryForUser(user.userId.toString());
+
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _history = historyMaps.cast<Map<String, dynamic>>();
+          _history = records;
         });
       }
     } catch (e) {
@@ -91,17 +85,14 @@ class _HistoryTabState extends State<HistoryTab> {
     }
   }
 
-  Future<void> _loadHistoryForCat(int catId) async {
+  Future<void> _loadHistoryForCat(String catId) async {
     try {
-      final response = await http.get(Uri.parse(serverUrl('/history/$catId')));
-      if (response.statusCode != 200) {
-        throw Exception('Failed to load history for cat $catId: ${response.body}');
-      }
-      final List<dynamic> historyMaps = jsonDecode(response.body);
+      final records = await _db.getHistoryForCat(catId);
+      
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _history = historyMaps.cast<Map<String, dynamic>>();
+          _history = records;
         });
       }
     } catch (e) {
@@ -125,23 +116,19 @@ class _HistoryTabState extends State<HistoryTab> {
     }
   }
 
-  List<Map<String, dynamic>> get _filteredHistory {
+  List<HistoryRecord> get _filteredHistory {
     if (_selectedDate == null) {
       return _history;
     }
     return _history.where((record) {
-      final dtString = (record['hist_time'] ?? record['translation_datetime']) as String?;
-      if (dtString == null) return false;
-      try {
-        final dt = DateTime.parse(dtString);
-        return dt.year == _selectedDate!.year &&
-            dt.month == _selectedDate!.month &&
-            dt.day == _selectedDate!.day;
-      } catch (e) {
-        return false;
-      }
+      final dt = record.translationDatetime;
+      if (dt == null) return false;
+      return dt.year == _selectedDate!.year &&
+          dt.month == _selectedDate!.month &&
+          dt.day == _selectedDate!.day;
     }).toList();
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -267,14 +254,11 @@ class _HistoryTabState extends State<HistoryTab> {
                   itemCount: filteredList.length,
                   itemBuilder: (context, index) {
                     final record = filteredList[index];
-                    final text = record['textTranslation']?.toString() ?? 'Unknown';
-                    final dtString = record['hist_time'] as String?;
-                    final catName = record['catName'] ?? _selectedCat?.name ?? 'Unknown Cat';
+                    final text = record.textTranslation ?? 'Unknown';
+                    final catName = record.catName ?? _selectedCat?.name ?? 'Unknown Cat';
                     String subtitle = '';
-                    if (dtString != null) {
-                      try {
-                        subtitle = DateTime.parse(dtString).toLocal().toString().substring(0, 16);
-                      } catch (_) { /* ignore parse error */ }
+                    if (record.translationDatetime != null) {
+                      subtitle = DateFormat.yMMMd().add_jm().format(record.translationDatetime!.toLocal());
                     }
 
                     return Card(
@@ -292,12 +276,19 @@ class _HistoryTabState extends State<HistoryTab> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             if (widget.initialCat == null)
-                              Text(catName, style: TextStyle(color: Theme.of(context).primaryColor, fontWeight: FontWeight.w500, fontSize: 12)),
+                              Text(
+                                catName,
+                                style: TextStyle(
+                                  color: Theme.of(context).primaryColor,
+                                  fontWeight: FontWeight.w500,
+                                  fontSize: 12,
+                                ),
+                              ),
                             if (subtitle.isNotEmpty)
                               Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
                           ],
                         ),
-                        trailing: null, // Audio playback is removed
+                        trailing: null,
                       ),
                     );
                   },

@@ -14,13 +14,18 @@ class mbar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final bg = theme.appBarTheme.backgroundColor;
+    final bg = Theme.of(context).primaryColor;
     final titleStyle = theme.appBarTheme.titleTextStyle;
 
     return AppBar(
       title: Text('MeowLang', style: titleStyle),
       centerTitle: false,
       backgroundColor: bg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          bottom: Radius.circular(9),
+        ),
+      ),
       actions: [
         Builder(
           builder: (ctx) => IconButton(

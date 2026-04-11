@@ -4,11 +4,14 @@ publish_to: 'none'
 version: 0.1.0+1
 
 environment:
-  sdk: '>=3.5.0 <4.0.0'
+  sdk: '>=3.0.0 <4.0.0'
 
 dependencies:
   flutter:
     sdk: flutter
+  firebase_core: ^4.6.0
+  cloud_firestore: ^6.2.0
+  firebase_storage: ^13.2.0
   persistent_bottom_nav_bar: ^6.2.1
   provider: ^6.1.2
   audioplayers: ^6.5.1
@@ -18,9 +21,13 @@ dependencies:
   permission_handler: ^12.0.1
   path_provider: ^2.1.2
   http: ^1.2.0
-  image_picker: ^0.8.7+4
-  fl_chart: ^0.68.0
-  intl: ^0.19.0
+  image_picker: ^1.2.1
+  fl_chart: ^1.2.0
+  intl: ^0.20.2
+  audio_2_spectrogram:
+    path: lib/backend/audio_2_spectrogram
+  tflite_flutter: ^0.12.1
+  image: ^4.1.3
 
 dev_dependencies:
   flutter_test:
@@ -35,6 +42,8 @@ flutter:
   assets:
     - assets/images/
     - assets/audio/
+    - models/deployed/
+
 
 flutter_launcher_icons:
   android: "launcher_icon"

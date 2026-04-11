@@ -1,8 +1,8 @@
-import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:meow_lang/backend/firebase_service.dart';
 import 'package:meow_lang/models/user.dart';
-import 'package:http/http.dart' as http;
-import 'package:meow_lang/server_config.dart';
+import 'package:meow_lang/models/cat.dart';
 
 class ProfileMenu extends StatefulWidget {
   const ProfileMenu({super.key});
@@ -53,6 +53,7 @@ class _LoginWidget extends StatefulWidget {
 }
 
 class _LoginWidgetState extends State<_LoginWidget> {
+  final FirebaseService _firebase = FirebaseService();
   bool _isProcessing = false;
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -75,34 +76,23 @@ class _LoginWidgetState extends State<_LoginWidget> {
     final password = _passwordController.text;
 
     try {
-      final response = await http
-          .post(
-            Uri.parse(serverUrl('/login')),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({'email': email, 'password': password}),
-          )
-          .timeout(const Duration(seconds: 10));
-
-      if (!mounted) return;
-
-      final data = jsonDecode(response.body);
-      if (response.statusCode == 200) {
-        if (data['user'] != null && data['user'] is Map<String, dynamic>) {
-          final userToSet = User.fromJson(data['user']);
-          User.login(userToSet);
-          widget.onLoggedIn();
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('Login failed: invalid server response')));
-        }
+      final userCred = await _firebase.login(email, password);
+      if (userCred != null) {
+        User.login(User(
+          userId: userCred['uid'],
+          name: userCred['name'] ?? userCred['email'],
+          email: userCred['email'],
+          regDate: null,
+        ));
+        widget.onLoggedIn();
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Login failed: ${data['message']}')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Login failed: unknown user or invalid credentials')));
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error connecting to server: $e')));
+            SnackBar(content: Text('Error connecting to auth: $e')));
       }
     } finally {
       if (mounted) {
@@ -213,6 +203,7 @@ class _RegisterWidget extends StatefulWidget {
 }
 
 class _RegisterWidgetState extends State<_RegisterWidget> {
+  final FirebaseService _firebase = FirebaseService();
   bool _isProcessing = false;
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
@@ -237,62 +228,20 @@ class _RegisterWidgetState extends State<_RegisterWidget> {
     final password = _passwordController.text;
 
     try {
-      final response = await http
-          .post(
-            Uri.parse(serverUrl('/register')),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({
-              'name': name,
-              'email': email,
-              'password': password,
-            }),
-          )
-          .timeout(const Duration(seconds: 10));
-
-      if (!mounted) return;
-
-      final data = jsonDecode(response.body);
-      if (response.statusCode == 201) {
-        // Registration successful, now try to log in to get user data
-        try {
-          final loginResp = await http
-              .post(
-                Uri.parse(serverUrl('/login')),
-                headers: {'Content-Type': 'application/json'},
-                body: jsonEncode({'email': email, 'password': password}),
-              )
-              .timeout(const Duration(seconds: 10));
-
-          if (!mounted) return;
-
-          if (loginResp.statusCode == 200) {
-            final loginData = jsonDecode(loginResp.body);
-            if (loginData['user'] != null &&
-                loginData['user'] is Map<String, dynamic>) {
-              final createdUser = User.fromJson(loginData['user']);
-              User.login(createdUser);
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                  content: Text('Registration successful — logged in.')));
-              widget.onRegistered();
-            } else {
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                  content: Text('Registration successful! Please log in.')));
-              widget.onSwitchToLogin();
-            }
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                content: Text('Registration successful! Please log in.')));
-            widget.onSwitchToLogin();
-          }
-        } catch (_) {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('Registration successful! Please log in.')));
-          widget.onSwitchToLogin();
-        }
+      final authUser = await _firebase.register(name, email, password);
+      if (authUser != null) {
+        User.login(User(
+          userId: authUser['uid'],
+          name: name,
+          email: email,
+          regDate: DateTime.now().toIso8601String(),
+        ));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Registration successful — logged in.')));
+        widget.onRegistered();
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Registration failed: ${data['message']}')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Registration failed: unknown error')));
       }
     } catch (e) {
       if (mounted) {
@@ -425,6 +374,26 @@ class _UserProfileView extends StatefulWidget {
 }
 
 class _UserProfileViewState extends State<_UserProfileView> {
+  @override
+  void initState() {
+    super.initState();
+    User.currentUser?.addListener(_onUserChanged);
+  }
+
+  void _onUserChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  void dispose() {
+    User.currentUser?.removeListener(_onUserChanged);
+    super.dispose();
+  }
+
+  final FirebaseService _firebaseService = FirebaseService();
+
   Future<void> _logout() async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -456,100 +425,234 @@ class _UserProfileViewState extends State<_UserProfileView> {
     // User is guaranteed to be non-null here because this widget is only shown when logged in.
     final user = User.currentUser!;
 
-    return SingleChildScrollView(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24.0),
-        child: Column(
-          children: [
-            const SizedBox(height: 50),
-            CircleAvatar(
-              radius: 48,
-              backgroundColor: Colors.grey.shade200,
-              child: Icon(Icons.person,
-                  size: 48, color: Theme.of(context).primaryColor),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              user.name!,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              user.email!,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: Colors.grey.shade600),
-            ),
-            const SizedBox(height: 20),
-            const Divider(),
-            Card(
-              margin: const EdgeInsets.symmetric(vertical: 12),
-              elevation: 2,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Account Details',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 16),
-                    _buildDetailRow(
-                        context, Icons.person_outline, 'Name', user.name!),
-                    const Divider(height: 24),
-                    _buildDetailRow(
-                        context, Icons.email_outlined, 'Email', user.email!),
-                    const SizedBox(height: 24),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: _logout,
-                        icon: const Icon(Icons.logout, color: Colors.red),
-                        label: const Text('Log out',
-                            style: TextStyle(color: Colors.red)),
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: Colors.red),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8)),
-                        ),
+    return Column(
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24.0),
+            child: Column(
+              children: [
+                const SizedBox(height: 50),
+                CircleAvatar(
+                  radius: 50,
+                  backgroundColor:
+                      Theme.of(context).primaryColor.withOpacity(0.1),
+                  child: Icon(Icons.person,
+                      size: 60, color: Theme.of(context).primaryColor),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  user.name!,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
                       ),
-                    ),
-                  ],
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  user.email!,
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyLarge
+                      ?.copyWith(color: Colors.grey.shade600),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 40),
+                StreamBuilder<int>(
+                  stream: _firebaseService.streamUserTranslationCount(user.userId!),
+                  builder: (context, translationSnapshot) {
+                    final translations = translationSnapshot.data ?? 0;
+                    return StreamBuilder<int>(
+                      stream: _firebaseService.streamUserCorrectionCount(user.userId!),
+                      builder: (context, correctionSnapshot) {
+                        final corrections = correctionSnapshot.data ?? 0;
+                        return Row(
+                          children: [
+                            Expanded(
+                              child: _buildStatCard(
+                                context,
+                                'Translations',
+                                translationSnapshot.connectionState == ConnectionState.waiting
+                                    ? '...'
+                                    : translations.toString(),
+                                Icons.translate,
+                                Colors.blue,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: _buildStatCard(
+                                context,
+                                'Corrections',
+                                correctionSnapshot.connectionState == ConnectionState.waiting
+                                    ? '...'
+                                    : corrections.toString(),
+                                Icons.feedback_outlined,
+                                Colors.orange,
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    );
+                  },
+                ),
+                const SizedBox(height: 24),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Registered Cats',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                StreamBuilder<List<Cat>>(
+                  stream: _firebaseService.streamCats(user.userId!),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(vertical: 32.0),
+                          child: CircularProgressIndicator(),
+                        ),
+                      );
+                    }
+                    if (snapshot.hasError) {
+                      return Center(
+                        child: Text('Error loading cats: ${snapshot.error}',
+                            style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                      );
+                    }
+
+                    final cats = snapshot.data ?? [];
+                    if (cats.isEmpty) {
+                      return Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey.shade300),
+                        ),
+                        child: Column(
+                          children: [
+                            Icon(Icons.pets, color: Colors.grey.shade400, size: 32),
+                            const SizedBox(height: 8),
+                            Text(
+                              'No cats registered yet.',
+                              style: TextStyle(color: Colors.grey.shade600),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+                    return ListView.separated(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: cats.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (context, index) => _buildCatListItem(cats[index]),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+        SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _logout,
+                icon: const Icon(Icons.logout),
+                label: const Text('Log out'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.red,
+                  side: const BorderSide(color: Colors.red),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
             ),
-          ],
+          ),
         ),
+      ],
+    );
+  }
+
+  Widget _buildCatListItem(Cat cat) {
+    return Card(
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      clipBehavior: Clip.antiAlias,
+      child: ListTile(
+        leading: CircleAvatar(
+          radius: 22,
+          backgroundColor: Colors.grey.shade200,
+          backgroundImage:
+              cat.imgPath != null ? FileImage(File(cat.imgPath!)) : null,
+          child: cat.imgPath == null
+              ? const Icon(Icons.pets, size: 22, color: Colors.grey)
+              : null,
+        ),
+        title: Text(
+          cat.name,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Text(
+          "${cat.age} years old",
+          style: TextStyle(color: Colors.grey.shade700),
+        ),
+        contentPadding:
+            const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
       ),
     );
   }
 
-  Widget _buildDetailRow(
-      BuildContext context, IconData icon, String title, String subtitle) {
-    return Row(
-      children: [
-        Icon(icon, color: Theme.of(context).primaryColor),
-        const SizedBox(width: 16),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildStatCard(BuildContext context, String label, String value,
+      IconData icon, Color color) {
+    return Card(
+      elevation: 0,
+      color: color.withOpacity(0.05),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: color.withOpacity(0.2)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24.0, horizontal: 16.0),
+        child: Column(
           children: [
-            Text(title,
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(color: Colors.grey.shade600)),
-            const SizedBox(height: 2),
-            Text(subtitle, style: Theme.of(context).textTheme.bodyLarge),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: color, size: 24),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              value,
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.grey.shade700,
+                    fontWeight: FontWeight.w500,
+                  ),
+            ),
           ],
-        )
-      ],
+        ),
+      ),
     );
   }
 }

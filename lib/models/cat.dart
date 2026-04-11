@@ -1,6 +1,8 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 class Cat {
-  final int? catId;
-  final int? userId;
+  final String? catId;
+  final String? userId;
   final String name;
   final String breed;
   final String gender;
@@ -17,9 +19,22 @@ class Cat {
     this.imgPath,
   });
 
+  factory Cat.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    return Cat(
+      catId: doc.id,
+      userId: data['userId']?.toString(),
+      name: data['name'] ?? 'Unknown',
+      breed: data['breed'] ?? 'Unknown',
+      gender: data['gender'] ?? 'Unknown',
+      age: data['age'] ?? 0,
+      imgPath: data['img_path']?.toString(),
+    );
+  }
+
   Cat.fromJson(Map<String, dynamic> json)
-      : catId = json['catId'] is int ? json['catId'] : int.tryParse(json['catId']?.toString() ?? ''),
-        userId = json['userId'] is int ? json['userId'] : int.tryParse(json['userId']?.toString() ?? ''),
+      : catId = json['catId']?.toString(),
+        userId = json['userId']?.toString(),
         name = json['name'] ?? 'Unknown',
         breed = json['breed'] ?? 'Unknown',
         gender = json['gender'] ?? 'Unknown',

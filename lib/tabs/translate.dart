@@ -1,16 +1,14 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:audioplayers/audioplayers.dart';
 import 'package:record/record.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:meow_lang/models/cat.dart';
-import 'package:meow_lang/server_config.dart';
+import 'package:meow_lang/backend/translation_engine.dart';
 import 'package:meow_lang/models/user.dart';
-
+import 'package:meow_lang/models/cat.dart';
+import 'package:meow_lang/backend/firebase_service.dart';
 
 class TranslateMenu extends StatefulWidget {
   const TranslateMenu({super.key});
@@ -20,9 +18,10 @@ class TranslateMenu extends StatefulWidget {
 }
 
 class _TranslateMenuState extends State<TranslateMenu> {
+  final FirebaseService _firebase = FirebaseService();
+  final TranslationEngine _engine = TranslationEngine();
   final player = AudioPlayer();
   final AudioRecorder _audioRecorder = AudioRecorder();
-  final http.Client _client = http.Client();
 
   bool holding = false;
   bool processing = false;
@@ -32,7 +31,7 @@ class _TranslateMenuState extends State<TranslateMenu> {
   Cat? _selectedCat;
   double _lastConfidence = 0.0;
   String _lastLabel = "";
-  int? _lastTranslationId;
+  String? _lastTranslationId;
   String? _lastSpectrogramPath;
 
   final List<String> _classLabels = [
@@ -55,7 +54,7 @@ class _TranslateMenuState extends State<TranslateMenu> {
   void dispose() {
     player.dispose();
     _audioRecorder.dispose();
-    _client.close();
+    _engine.dispose();
     super.dispose();
   }
 
@@ -66,64 +65,22 @@ class _TranslateMenuState extends State<TranslateMenu> {
         return;
       }
 
-      final response = await _client.get(
-        Uri.parse(serverUrl('/cats?userId=${user.userId}')),
-        headers: {'Connection': 'Keep-Alive'},
-      );
-      if (response.statusCode == 200) {
-        final List<dynamic> catMaps = jsonDecode(response.body);
-        final cats = catMaps.map((catMap) => Cat.fromJson(catMap)).toList();
-        if (mounted) {
-          setState(() {
-            _cats = cats;
-            if (_cats.isNotEmpty) {
-              _selectedCat = _cats.first;
-            } else {
-              _selectedCat = null;
-            }
-          });
-        }
-      } else {
-        throw Exception('Failed to load cats: ${response.body}');
+      final cats = await _firebase.getCats(user.userId);
+      if (mounted) {
+        setState(() {
+          _cats = cats;
+          // Set selected cat to the first one if available, otherwise null (for "Unassigned")
+          _selectedCat = _cats.isNotEmpty ? _cats.first : null;
+        });
       }
     } catch (e) {
       print('[Translate] Error loading cats: $e');
       if (mounted) {
         setState(() {
           _cats = [];
-          _selectedCat = null;
+          _selectedCat = null; // Ensure selectedCat is null on error or no cats
         });
       }
-    }
-  }
-
-  Future<void> _saveTranslationResult(String label, String? spectrogramPath,
-      double confidence, int translationId) async {
-    if (_selectedCat == null) {
-      print('[Translate] No cat selected, not saving history.');
-      return;
-    }
-
-    try {
-      final response = await _client.post(
-        Uri.parse(serverUrl('/history')),
-        headers: {
-          'Content-Type': 'application/json',
-          'Connection': 'Keep-Alive',
-        },
-        body: jsonEncode({
-          'textTranslation': label,
-          'translationId': translationId,
-          'catId': _selectedCat!.catId,
-        }),
-      );
-      if (response.statusCode == 200) {
-        print('[Translate] History saved successfully.');
-      } else {
-        print('[Translate] Failed to save history: ${response.body}');
-      }
-    } catch (e) {
-      print('[Translate] Error saving history: $e');
     }
   }
 
@@ -146,47 +103,25 @@ class _TranslateMenuState extends State<TranslateMenu> {
       return;
     }
 
-    final url = serverUrl('/feedback');
-    print('[Feedback] Submitting correction to $url');
-
     try {
-      final response = await _client.post(
-        Uri.parse(url),
-        headers: {
-          'Content-Type': 'application/json; charset=UTF-8',
-          'Connection': 'Keep-Alive',
-        },
-        body: jsonEncode({
-          'translationId': _lastTranslationId,
-          'new_label': newLabel,
-          'userId': user.userId,
-        }),
-      ).timeout(const Duration(seconds: 30));
-
-      if (response.statusCode == 201) {
-        print('[Feedback] Correction submitted successfully.');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Thank you for your feedback!')),
-          );
-        }
-      } else {
-        print(
-            '[Feedback] Failed to submit correction. Status ${response.statusCode}: ${response.body}');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content:
-                    Text('Failed to submit feedback: ${response.reasonPhrase} (${response.statusCode})')),
-          );
-        }
+      await _firebase.saveFeedback(
+        translationId: _lastTranslationId!,
+        newLabel: newLabel,
+        userId: user.userId.toString(),
+        catId: _selectedCat?.catId,
+      );
+      print('[Feedback] Correction submitted successfully.');
+      if (mounted) {
+        User.currentUser?.incrementCorrections();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Thank you for your feedback!')),
+        );
       }
     } catch (e) {
       print('[Feedback] Error submitting feedback: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('An error occurred while submitting feedback.')),
+          SnackBar(content: Text('Failed to submit feedback: $e')),
         );
       }
     }
@@ -422,8 +357,7 @@ class _TranslateMenuState extends State<TranslateMenu> {
             ),
           ),
         ),
-        if (_cats.isNotEmpty)
-          Positioned(
+        Positioned( // The dropdown menu will always appear
             top: 16,
             right: 16,
             child: Container(
@@ -442,13 +376,20 @@ class _TranslateMenuState extends State<TranslateMenu> {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-
                   Icon(Icons.pets,
                       size: 18, color: Theme.of(context).primaryColor),
                   const SizedBox(width: 8),
+                  Text( // Added "Cat:" label
+                    'Cat:',
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(width: 12), // Adjusted spacing
                   
                   DropdownButtonHideUnderline(
-                    child: DropdownButton<Cat>(
+                    child: DropdownButton<Cat?>( // Changed to Cat? to allow null value
                       value: _selectedCat,
                       isDense: true,
                       icon: const Icon(Icons.arrow_drop_down),
@@ -458,16 +399,23 @@ class _TranslateMenuState extends State<TranslateMenu> {
                           ?.copyWith(fontWeight: FontWeight.bold),
                       onChanged: (Cat? newValue) {
                         setState(() {
-                          _selectedCat = newValue!;
+                          _selectedCat = newValue; // newValue can be null for "Unassigned"
                         });
                       },
-                      items: _cats.map<DropdownMenuItem<Cat>>((Cat value) {
-                        return DropdownMenuItem<Cat>(
+                      items: [
+                        // Always include "Unassigned" option
+                        DropdownMenuItem<Cat?>(
+                          value: null,
+                          child: Text('Unassigned'),
+                        ),
+                        // Add actual cats if available
+                        ..._cats.map<DropdownMenuItem<Cat?>>((Cat value) {
+                          return DropdownMenuItem<Cat?>(
                           value: value,
                           child: Text(value.name),
                         );
                       }).toList(),
-                    ),
+                ]),
                   ),
                 ],
               ),
@@ -502,7 +450,7 @@ class _TranslateMenuState extends State<TranslateMenu> {
 
       if (path != null) {
         final file = File(path);
-        if (!await file.exists() || file.length() == 0) {
+        if (!await file.exists() || await file.length() == 0) {
           debugPrint('[Translate] Audio file is empty or missing.');
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -519,79 +467,36 @@ class _TranslateMenuState extends State<TranslateMenu> {
           });
         }
 
-        final String url = serverUrl('/convert');
-
-        print('[Translate] Uploading audio to $url...');
-
         try {
-          var request = http.MultipartRequest('POST', Uri.parse(url));
-          request.headers['Connection'] = 'Keep-Alive';
-          request.files.add(await http.MultipartFile.fromPath('file', path));
+          final result = await _engine.processMeow(
+            path,
+            _selectedCat?.catId ?? 'unassigned',
+            _selectedCat?.name ?? 'Unknown',
+          );
 
-          var streamedResponse =
-              await _client.send(request).timeout(const Duration(seconds: 60));
-          var response = await http.Response.fromStream(streamedResponse);
-
-          if (response.statusCode == 200) {
-            final data = jsonDecode(response.body);
-            final String label = data['label'];
-            final int translationId = data['id'];
-            print("[Translate] Server response: $label");
-            final double confidence =
-                (data['confidence'] as num?)?.toDouble() ?? 0.0;
-            final String base64Image = data['spectrogram'];
-
-            final dir = await getApplicationDocumentsDirectory();
-            final outputPath =
-                '${dir.path}/spectrogram_${DateTime.now().millisecondsSinceEpoch}.png';
-            final file = File(outputPath);
-            await file.writeAsBytes(base64Decode(base64Image));
-            print('[Translate] Spectrogram saved to: $outputPath');
-
-            if (mounted) {
-              setState(() {
-                translatedText = label;
-                _lastLabel = label;
-                _lastConfidence = confidence;
-                _lastSpectrogramPath = outputPath;
-                _lastTranslationId = translationId;
-                processing = false;
-              });
-              player.play(AssetSource('audio/pop.mp3'));
-              print('[Translate] Calling _saveTranslationResult...');
-              await _saveTranslationResult(label, outputPath, confidence, translationId);
-              print('[Translate] Translation result saved');
+          if (mounted) {
+            setState(() {
+              translatedText = result['label'];
+              _lastLabel = result['label'];
+              _lastConfidence = result['confidence'] * 100;
+              _lastSpectrogramPath = result['imgPath'];
+              _lastTranslationId = result['id'];
+              processing = false;
+            });
+            
+            if (User.isLoggedIn) {
+              User.currentUser!.incrementTranslations();
             }
-          } else {
-            final message =
-                'Server returned ${response.statusCode}: ${response.body}';
-            print('[Translate] $message');
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Translation failed: $message')),
-              );
-              setState(() => processing = false);
-            }
-
-            // Delete the temporary audio file
-            final audioFile = File(path);
-            if (await audioFile.exists()) {
-              await audioFile.delete();
-              print('[Translate] Temporary audio file deleted.');
-            }
+            
+            player.play(AssetSource('audio/pop.mp3'));
           }
         } catch (e) {
-          // capture network errors so users know why the tap didn't work
-          print('[Translate] Error uploading audio: $e');
+          print('[Translate] Error processing meow: $e');
           if (mounted) {
             setState(() => processing = false);
-            String msg = e.toString();
-            if (e is SocketException) {
-              msg =
-                  'Could not reach translation server. Make sure it is running and accessible.';
-            }
-            ScaffoldMessenger.of(context)
-                .showSnackBar(SnackBar(content: Text(msg)));
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Translation failed: $e')),
+            );
           }
         }
       }

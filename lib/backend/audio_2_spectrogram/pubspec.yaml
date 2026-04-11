@@ -1,0 +1,13 @@
+name: audio_2_spectrogram
+description: "A Dart library to convert audio to spectrogram and mel spectrogram, inspired by librosa."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.10.8 <4.0.0'
+
+dependencies:
+  wav: ^1.5.0
+  fftea: ^1.5.0 
+  coast_audio: ^1.0.0
+  image: ^4.8.0

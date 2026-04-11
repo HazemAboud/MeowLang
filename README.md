@@ -1,53 +1,23 @@
 # Meow Lang
 
-A Flutter project that translates cat meows into human sentences.
+Meow Lang is a mobile application that translates cat sounds. By leveraging AI-powered audio processing and machine learning, the app classifies cat meows into emotions.
 
-> ⚠️ **Server connectivity**
->
-> The mobile app relies on a local HTTP server for audio processing. On Android
-> emulators the host machine is accessible via `10.0.2.2`; on a real device set
-> `androidServerIp` in `lib/server_config.dart` to your computer's LAN address
-> (leave it blank to auto‑select the emulator address).
+## 🐾 Features
 
-### Database schema notes
+*   **AI Translation Engine**: Converts `.wav` audio recordings of cat meows into mel-spectrograms and uses a TFLite model to predict the cat's intent (e.g., "I am feeling hungry").
+*   **Cat Profile Management**: Add, edit, and manage multiple cats with details including breed, age, gender, and profile photos.
+*   **Translation History**: Keeps a detailed record of every translation, including the date, predicted emotion, and the generated spectrogram image.
+*   **Analytics & Insights**: Visualize your cat's communication patterns through interactive pie charts showing the frequency of different translated "labels."
+*   **Cloud Synchronization**: Powered by Firebase Firestore for real-time data sync across devices, including manual user authentication and performance logging.
 
-The server uses a MySQL database to store synced user data. Early versions
-expected numeric primary keys for translations/history; the Flutter client now
-uses text IDs like `1623456789123_123456`. When you start the Python server it
-will automatically attempt to migrate the `translations` and `history` tables
-so their ID columns are `VARCHAR(255)` and can accept these values. If you
-receive errors such as `Out of range value for column 'translationId'`, stop
-the server, restart it, and verify the alteration statements ran successfully
-(they're printed to the console). You may also manually run the following
-SQL against your database if needed:
+## 🚀 Tech Stack
 
-```sql
-ALTER TABLE translations MODIFY translationId VARCHAR(255) PRIMARY KEY;
-ALTER TABLE history MODIFY id VARCHAR(255) PRIMARY KEY;
-ALTER TABLE history MODIFY translationId VARCHAR(255);
-```
+*   **Frontend**: Flutter (Dart)
+*   **State Management**: Provider
+*   **Backend**: Firebase (Firestore & Core)
+*   **Machine Learning**: TFLite for on-device inference.
+*   **Audio Processing**: `audio_2_spectrogram` for generating visual representations of meows.
+*   **Data Visualization**: fl_chart for analytics.
 
-These migrations are idempotent; running them again won't harm an already
-correct schema.
-
-### Database connection pooling
-
-To reduce overhead the Python server now uses a `mysql.connector` connection
-pool rather than opening a new socket on every `/sync` call.  The pool is
-created lazily on first use with a default size of 5 connections; you can
-adjust `_POOL_SIZE` in `lib/DB/server.py` if you expect higher concurrency.
-The `get_db_connection()` helper simply returns a connection from this pool,
-and callers are responsible for closing it (which returns it to the pool).
-
-### UI changes
-
-The analytics tab has been removed and replaced by a dedicated **Cats** tab in
-the bottom navigation bar.  This new section centralizes cat management—each
-pet is shown as a large card (with an optional photo) and may be added, edited
-(long‑press) or deleted using the floating action button.  When adding or
-editing a cat you can now tap the avatar area to pick an image from the
-gallery; the chosen picture is copied to the app's documents folder.
-
-Tapping a cat opens a history page showing only that animal's translation
-records.  The Profile tab no longer displays cats; it now only shows account
-details and includes a "Manage Cats" button that navigates to the Cats tab.
+## 📈 Performance Monitoring
+The app includes a built-in performance logging helper within `FirebaseService` that records query execution times to the `query_performance` which is then displayed in the admin dashboard for monitoring and optimization.

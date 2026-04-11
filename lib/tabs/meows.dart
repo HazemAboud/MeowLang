@@ -10,6 +10,7 @@ class MeowMenu extends StatefulWidget {
 
 class _MeowMenuState extends State<MeowMenu> {
   final player = AudioPlayer();
+  int _tappedIndex = -1;
 
   final List<Map<String, String>> _items = [
     {'label': 'Angry', 'image': 'assets/images/angry.png', 'audio': 'audio/angry.mp3'},
@@ -23,35 +24,56 @@ class _MeowMenuState extends State<MeowMenu> {
   @override
   Widget build(BuildContext context) {
     return GridView.builder(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(24),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
-        crossAxisSpacing: 16,
-        mainAxisSpacing: 16,
-        childAspectRatio: 1,
+        crossAxisSpacing: 20,
+        mainAxisSpacing: 20,
+        childAspectRatio: 0.85,
       ),
       itemCount: _items.length,
       itemBuilder: (context, index) {
         final item = _items[index];
-        return Card(
-          elevation: 4,
-          shadowColor: Colors.black26,
-          clipBehavior: Clip.antiAlias,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-          child: InkWell(
-            onTap: () => player.play(AssetSource(item['audio']!)),
+        final isTapped = _tappedIndex == index;
+        return InkWell(
+          onTap: () {
+            player.play(AssetSource(item['audio']!));
+            setState(() => _tappedIndex = index);
+            Future.delayed(const Duration(milliseconds: 300), () {
+              if (mounted && _tappedIndex == index) {
+                setState(() => _tappedIndex = -1);
+              }
+            });
+          },
+          borderRadius: BorderRadius.circular(24),
+          child: TweenAnimationBuilder<double>(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            tween: Tween<double>(begin: 0.0, end: isTapped ? 1.0 : 0.0),
+            builder: (context, value, child) {
+              final elevation = 6 + (value * 6); // Animate from 6 to 12
+              final scale = 1.04 + (value * 0.05); // Animate from 1.0 to 1.05
+              return Transform.scale(
+                scale: scale,
+                child: Card(
+                  elevation: elevation,
+                  shadowColor: const Color.fromARGB(96, 77, 12, 12),
+                  clipBehavior: Clip.antiAlias,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                  child: child,
+                ),
+              );
+            },
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Expanded(
                   child: Container(
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.secondaryContainer.withOpacity(0.3),
-                    ),
-                    padding: const EdgeInsets.all(24.0),
-                    child: Image.asset(
-                      item['image']!,
-                      fit: BoxFit.contain,
+                      image: DecorationImage(
+                        image: AssetImage(item['image']!),
+                        fit: BoxFit.cover,
+                      ),
                     ),
                   ),
                 ),
@@ -61,18 +83,25 @@ class _MeowMenuState extends State<MeowMenu> {
                   child: Text(
                     item['label']!,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 16,
+                    style: TextStyle(
+                      fontSize: 18,
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
+                      shadows: [
+                        Shadow(
+                          blurRadius: 6.0,
+                          color: Colors.black.withOpacity(0.5),
+                          offset: const Offset(1, 1),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              ],
-            ),
+                ],
+              ),
           ),
         );
-      },
-    );
+  });
+      }
+    
   }
-}
