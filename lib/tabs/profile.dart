@@ -1,8 +1,9 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:meow_lang/backend/firebase_service.dart';
-import 'package:meow_lang/models/user.dart';
-import 'package:meow_lang/models/cat.dart';
+import '../models/user.dart';
+import '../snackbar_helper.dart';
+import '../models/cat.dart';
 
 class ProfileMenu extends StatefulWidget {
   const ProfileMenu({super.key});
@@ -86,13 +87,11 @@ class _LoginWidgetState extends State<_LoginWidget> {
         ));
         widget.onLoggedIn();
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Login failed: unknown user or invalid credentials')));
+        SnackBarHelper.showError(context, 'Login failed: unknown user or invalid credentials');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error connecting to auth: $e')));
+        SnackBarHelper.showError(context, 'Error connecting to auth: $e');
       }
     } finally {
       if (mounted) {
@@ -236,17 +235,14 @@ class _RegisterWidgetState extends State<_RegisterWidget> {
           email: email,
           regDate: DateTime.now().toIso8601String(),
         ));
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Registration successful — logged in.')));
+        SnackBarHelper.showSuccess(context, 'Registration successful — logged in.');
         widget.onRegistered();
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Registration failed: unknown error')));
+        SnackBarHelper.showError(context, 'Registration failed: unknown error');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error connecting to server: $e')));
+        SnackBarHelper.showError(context, 'Error connecting to server: $e');
       }
     } finally {
       if (mounted) {

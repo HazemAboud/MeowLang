@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:meow_lang/models/cat.dart';
-import 'package:meow_lang/models/historyRecord.dart';
-import 'package:meow_lang/models/user.dart';
+import '../models/cat.dart';
+import '../models/historyRecord.dart';
+import '../models/user.dart';
 import 'package:meow_lang/backend/firebase_service.dart';
 
 // Assuming your legacy User model is still used for session management, 
@@ -132,15 +132,7 @@ class _HistoryTabState extends State<HistoryTab> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      // Only show app bar if it's the main tab, not a detail screen
-      appBar: widget.initialCat == null
-          ? AppBar(
-              title: const Text('History'),
-            )
-          : null,
-      body: _buildContent(),
-    );
+    return _buildContent();
   }
 
   Widget _buildContent() {
@@ -170,6 +162,7 @@ class _HistoryTabState extends State<HistoryTab> {
               const SizedBox(height: 24),
               ElevatedButton.icon(
                 onPressed: () {if (mounted) widget.initialCat != null ? _loadHistoryForCat(widget.initialCat!.catId!) : _loadAllHistory();},
+                icon: const Icon(Icons.refresh),
                 label: const Text('Retry'),
               ),
             ],
@@ -250,7 +243,7 @@ class _HistoryTabState extends State<HistoryTab> {
                   ),
                 )
               : ListView.builder(
-                  padding: const EdgeInsets.all(8),
+                  padding: const EdgeInsets.fromLTRB(8, 8, 8, 80),
                   itemCount: filteredList.length,
                   itemBuilder: (context, index) {
                     final record = filteredList[index];

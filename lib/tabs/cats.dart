@@ -2,11 +2,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:image_cropper/image_cropper.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:meow_lang/backend/firebase_service.dart';
-import 'package:meow_lang/models/cat.dart';
-import 'package:meow_lang/models/user.dart';
+import '../models/cat.dart';
+import '../snackbar_helper.dart';
+import '../models/user.dart';
 
 // ---------------------------------------------------------------------------
 // CatsTab
@@ -49,14 +51,11 @@ class CatsTab extends StatelessWidget {
     try {
       await _firebase.deleteCat(cat.catId!);
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('${cat.name} deleted.')));
+        SnackBarHelper.showSuccess(context, '${cat.name} deleted.');
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to delete ${cat.name}.')),
-        );
+        SnackBarHelper.showError(context, 'Failed to delete ${cat.name}.');
       }
     }
   }
@@ -107,9 +106,7 @@ class CatsTab extends StatelessWidget {
         child: FloatingActionButton.extended(
           onPressed: () {
             if (!User.isLoggedIn) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Please log in to add a cat.')),
-              );
+              SnackBarHelper.showError(context, 'Please log in to add a cat.');
               return;
             }
             _openCatDialog(context);
@@ -174,11 +171,31 @@ class _CatDialogState extends State<_CatDialog> {
     try {
       final picked =
           await ImagePicker().pickImage(source: ImageSource.gallery);
-      if (picked != null && mounted) {
+      if (picked == null) return;
+
+      final croppedFile = await ImageCropper().cropImage(
+        sourcePath: picked.path,
+        aspectRatio: const CropAspectRatio(ratioX: 16, ratioY: 9),
+        uiSettings: [
+          AndroidUiSettings(
+            toolbarTitle: 'Crop Cat Photo',
+            toolbarColor: Theme.of(context).primaryColor,
+            toolbarWidgetColor: Colors.white,
+            initAspectRatio: CropAspectRatioPreset.ratio16x9,
+            lockAspectRatio: true,
+          ),
+          IOSUiSettings(
+            title: 'Crop Cat Photo',
+            aspectRatioLockEnabled: true,
+          ),
+        ],
+      );
+
+      if (croppedFile != null && mounted) {
         final dir = await getApplicationDocumentsDirectory();
         final dest = File(
             '${dir.path}/${DateTime.now().millisecondsSinceEpoch}_${picked.name}');
-        await File(picked.path).copy(dest.path);
+        await File(croppedFile.path).copy(dest.path);
         if (mounted) {
           setState(() {
             _imagePath = dest.path;
@@ -203,9 +220,7 @@ class _CatDialogState extends State<_CatDialog> {
     final user = User.currentUser;
     if (user == null) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Session expired. Please log in again.')),
-        );
+        SnackBarHelper.showError(context, 'Session expired. Please log in again.');
       }
       return;
     }
@@ -231,17 +246,13 @@ class _CatDialogState extends State<_CatDialog> {
 
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_isEdit ? 'Cat updated!' : 'Cat added!')),
-        );
+        SnackBarHelper.showSuccess(context, _isEdit ? 'Cat updated!' : 'Cat added!');
       }
     } catch (e) {
       debugPrint('Save cat error: $e');
       if (mounted) {
         setState(() => _saving = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to save. Please try again.')),
-        );
+        SnackBarHelper.showError(context, 'Failed to save. Please try again.');
       }
     }
   }
@@ -642,6 +653,13 @@ class _CatDetailScreenState extends State<CatDetailScreen> {
     _loadHistory();
   }
 
+  String _formatLabel(String? label) {
+    if (label == null || label == 'Unknown' || label.isEmpty) return 'Unknown';
+    if (label == 'motherCall') return 'Mother Call';
+    // Capitalize first letter
+    return label[0].toUpperCase() + label.substring(1);
+  }
+
   Future<void> _loadHistory() async {
     if (widget.cat.catId == null) {
       setState(() => _loading = false);
@@ -649,12 +667,22 @@ class _CatDetailScreenState extends State<CatDetailScreen> {
     }
     try {
       final records = await _firebase.getHistoryForCat(widget.cat.catId!);
-      final history = records
-          .map((r) => {
-                'label': r.textTranslation ?? 'Unknown',
-                'time': r.translationDatetime?.toIso8601String(),
-              })
-          .toList();
+
+      // Fetch the class label from the translations collection for each record
+      final history = await Future.wait(records.map((r) async {
+        String rawLabel = 'Unknown';
+        if (r.translationId != null) {
+          final doc = await _firebase.collection('translations').doc(r.translationId).get();
+          if (doc.exists) {
+            rawLabel = (doc.data())?['className'] ?? 'Unknown';
+          }
+        }
+        return {
+          'label': _formatLabel(rawLabel),
+          'translation': r.textTranslation ?? 'Unknown',
+          'time': r.translationDatetime?.toIso8601String(),
+        };
+      }));
 
       final counts = <String, double>{};
       for (final r in history) {
@@ -671,7 +699,12 @@ class _CatDetailScreenState extends State<CatDetailScreen> {
       }
     } catch (e) {
       debugPrint('Error loading history: $e');
-      if (mounted) setState(() => _loading = false);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
     }
   }
 
@@ -827,7 +860,7 @@ class _CatDetailScreenState extends State<CatDetailScreen> {
                       return ListTile(
                         leading: const Icon(Icons.volume_up),
                         title: Text(record['label'] as String),
-                        subtitle: Text(formattedDate),
+                        subtitle: Text('${record['translation']}\n$formattedDate'),
                       );
                     },
                     childCount: _history.length,

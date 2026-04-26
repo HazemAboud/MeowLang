@@ -32,18 +32,9 @@ class Cat {
     );
   }
 
-  Cat.fromJson(Map<String, dynamic> json)
-      : catId = json['catId']?.toString(),
-        userId = json['userId']?.toString(),
-        name = json['name'] ?? 'Unknown',
-        breed = json['breed'] ?? 'Unknown',
-        gender = json['gender'] ?? 'Unknown',
-        age = json['age'] ?? 0,
-        imgPath = json['img_path']?.toString();
 
   Map<String, dynamic> toJson() {
     return {
-      'catId': catId,
       'userId': userId,
       'name': name,
       'breed': breed,

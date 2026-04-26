@@ -1,4 +1,5 @@
 import 'dart:developer';
+import 'dart:math' hide log;
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -14,6 +15,14 @@ class FirebaseService {
     databaseId: 'meowlang',
   );
 
+  final Random _random = Random();
+
+  /// Generates a unique numeric ID as a string.
+  String _generateNumericId() {
+    // Combine microseconds since epoch with 3 random digits for high collision resistance
+    return '${DateTime.now().microsecondsSinceEpoch}${_random.nextInt(90000) + 10000}';
+  }
+
   /// Exposes the collection method from the underlying Firestore instance.
   CollectionReference<Map<String, dynamic>> collection(String path) {
     return _db.collection(path);
@@ -22,7 +31,8 @@ class FirebaseService {
   // Performance Logging Helper (Consistent with original Python implementation)
   Future<void> _logPerformance(String endpoint, String queryName, double timeMs) async {
     try {
-      await _db.collection('query_performance').add({
+      final id = _generateNumericId();
+      await _db.collection('query_performance').doc(id).set({
         'endpoint': endpoint,
         'query_name': queryName,
         'execution_time_ms': timeMs,
@@ -73,10 +83,12 @@ class FirebaseService {
       'regDate': FieldValue.serverTimestamp(),
     };
 
-    final docRef = await _db.collection('users').add(newUser);
+    final id = _generateNumericId();
+    final docRef = _db.collection('users').doc(id);
+    await docRef.set(newUser);
     
     _logPerformance('/register', 'insert_user', stopwatch.elapsedMilliseconds.toDouble());
-    newUser['uid'] = docRef.id;
+    newUser['uid'] = id;
     return newUser;
   }
 
@@ -116,7 +128,9 @@ class FirebaseService {
 
   Future<Cat> createCat(Cat cat) async {
     final stopwatch = Stopwatch()..start();
-    final docRef = await _db.collection('cats').add(cat.toJson());
+    final id = _generateNumericId();
+    final docRef = _db.collection('cats').doc(id);
+    await docRef.set(cat.toJson());
     final newDoc = await docRef.get();
     
     _logPerformance('/cats', 'insert_cat', stopwatch.elapsedMilliseconds.toDouble());
@@ -210,7 +224,8 @@ class FirebaseService {
     if (catName != null) data['catName'] = catName;
     if (imgPath != null) data['imgPath'] = imgPath;
     
-    await _db.collection('history').add(data);
+    final id = _generateNumericId();
+    await _db.collection('history').doc(id).set(data);
     _logPerformance('/history', 'insert_history', stopwatch.elapsedMilliseconds.toDouble());
   }
 
@@ -234,9 +249,10 @@ class FirebaseService {
 
   Future<String> saveTranslation(Translation translation) async {
     final stopwatch = Stopwatch()..start();
-    final docRef = await _db.collection('translations').add(translation.toJson());
+    final id = _generateNumericId();
+    await _db.collection('translations').doc(id).set(translation.toJson());
     _logPerformance('/convert', 'insert_translation', stopwatch.elapsedMilliseconds.toDouble());
-    return docRef.id;
+    return id;
   }
 
   // --- Stats & Feedback ---
@@ -286,7 +302,8 @@ class FirebaseService {
 
     final translation = Translation.fromFirestore(transDoc);
 
-    await _db.collection('corrections').add({
+    final id = _generateNumericId();
+    await _db.collection('corrections').doc(id).set({
       'translationId': translationId,
       'image_path': translation.imgPath, // Assumes URL or Storage path
       'old_label': translation.className,

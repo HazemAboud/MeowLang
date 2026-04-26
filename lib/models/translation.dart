@@ -29,16 +29,8 @@ class Translation {
     );
   }
 
-  Translation.fromJson(Map<String, dynamic> json)
-      : id = json['translationId']?.toString(),
-        audioPath = json['audioPath'],
-        imgPath = json['imgPath'],
-        className = json['className'],
-        confidence = (json['confidence'] as num).toDouble(),
-        dateTime = DateTime.parse(json['datetime']);
 
   Map<String, dynamic> toJson() => {
-        'id': id,
         'audioPath': audioPath, 
         'imgPath': imgPath,
         'className': className,

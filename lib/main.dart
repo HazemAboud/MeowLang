@@ -6,6 +6,7 @@ import 'splash.dart';
 import 'tabs/theme.dart';
 import 'firebase_options.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'dart:async';
 
@@ -78,13 +79,21 @@ class _AuthWrapperState extends State<AuthWrapper>
     print('[AppLifecycle] App state changed to: $state');
   }
 
-  void _navigateHome() {
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) {
+  Future<void> _navigateHome() async {
+    // Wait for the splash screen duration
+    await Future.delayed(const Duration(seconds: 3));
+    if (!mounted) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
+
+    if (isLoggedIn) {
         Navigator.of(context).pushReplacement(
             MaterialPageRoute(builder: (context) => const Home()));
-      }
-    });
+    } else {
+      print('[Auth] No session found. Navigating to Login...');
+      // Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (context) => const LoginScreen()));
+    }
   }
 
   @override

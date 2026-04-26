@@ -6,8 +6,9 @@ import 'package:record/record.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:meow_lang/backend/translation_engine.dart';
-import 'package:meow_lang/models/user.dart';
-import 'package:meow_lang/models/cat.dart';
+import '../models/user.dart';
+import '../models/cat.dart';
+import '../snackbar_helper.dart';
 import 'package:meow_lang/backend/firebase_service.dart';
 
 class TranslateMenu extends StatefulWidget {
@@ -35,9 +36,9 @@ class _TranslateMenuState extends State<TranslateMenu> {
   String? _lastSpectrogramPath;
 
   final List<String> _classLabels = [
-    'Food',
-    'Isolation',
-    'MotherCall',
+    'food',
+    'isolation',
+    'motherCall',
     'Resting',
     'angry',
   ];
@@ -86,25 +87,18 @@ class _TranslateMenuState extends State<TranslateMenu> {
 
   Future<void> _submitFeedback(String newLabel) async {
     if (_lastTranslationId == null || _lastSpectrogramPath == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content:
-                Text('Could not submit feedback: Missing translation data.')),
-      );
+      SnackBarHelper.showError(context, 'Could not submit feedback: Missing translation data.');
       return;
     }
 
     final user = User.currentUser;
     if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('You must be logged in to submit feedback.')),
-      );
+      SnackBarHelper.showError(context, 'You must be logged in to submit feedback.');
       return;
     }
 
     try {
-      await _firebase.saveFeedback(
+      await _engine.submitFeedback(
         translationId: _lastTranslationId!,
         newLabel: newLabel,
         userId: user.userId.toString(),
@@ -113,16 +107,12 @@ class _TranslateMenuState extends State<TranslateMenu> {
       print('[Feedback] Correction submitted successfully.');
       if (mounted) {
         User.currentUser?.incrementCorrections();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Thank you for your feedback!')),
-        );
+        SnackBarHelper.showSuccess(context, 'Thank you for your feedback!');
       }
     } catch (e) {
       print('[Feedback] Error submitting feedback: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to submit feedback: $e')),
-        );
+        SnackBarHelper.showError(context, 'Failed to submit feedback: $e');
       }
     }
   }
@@ -158,7 +148,11 @@ class _TranslateMenuState extends State<TranslateMenu> {
                       items: _classLabels.map((String label) {
                         return DropdownMenuItem<String>(
                           value: label,
-                          child: Text(label),
+                          // Display labels nicely but keep values consistent with backend
+                          child: Text(label == 'motherCall' 
+                              ? 'Mother Call' 
+                              : label[0].toUpperCase() + label.substring(1)
+                          ),
                         );
                       }).toList(),
                       onChanged: (value) => setDialogState(() => selectedCorrection = value),
@@ -453,9 +447,7 @@ class _TranslateMenuState extends State<TranslateMenu> {
         if (!await file.exists() || await file.length() == 0) {
           debugPrint('[Translate] Audio file is empty or missing.');
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Recording too short. Please hold longer.')),
-            );
+            SnackBarHelper.showError(context, 'Recording too short. Please hold longer.');
           }
           return;
         }
@@ -475,10 +467,18 @@ class _TranslateMenuState extends State<TranslateMenu> {
           );
 
           if (mounted) {
+            // If the model failed to load, notify the user instead of showing "Offline" in the bubble
+            if (result['label'] == 'Offline') {
+              setState(() => processing = false);
+              SnackBarHelper.showError(context, 'Translation Engine is Offline. Check model asset paths.');
+              return;
+            }
+
             setState(() {
-              translatedText = result['label'];
+              // Use the random cat message for the UI, fallback to label if missing
+              translatedText = result['text'] ?? result['label']; 
               _lastLabel = result['label'];
-              _lastConfidence = result['confidence'] * 100;
+              _lastConfidence = result['confidence']; // Already multiplied by 100 in engine
               _lastSpectrogramPath = result['imgPath'];
               _lastTranslationId = result['id'];
               processing = false;
@@ -494,9 +494,7 @@ class _TranslateMenuState extends State<TranslateMenu> {
           print('[Translate] Error processing meow: $e');
           if (mounted) {
             setState(() => processing = false);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Translation failed: $e')),
-            );
+            SnackBarHelper.showError(context, 'Translation failed: $e');
           }
         }
       }
