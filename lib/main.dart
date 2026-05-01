@@ -6,7 +6,10 @@ import 'splash.dart';
 import 'tabs/theme.dart';
 import 'firebase_options.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'models/user.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'backend/tflite_service.dart';
 
 import 'dart:async';
 
@@ -17,9 +20,11 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
-  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  // Use manual mode to ensure the system bars are respected on physical devices
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: [SystemUiOverlay.top, SystemUiOverlay.bottom]);
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    systemNavigationBarColor: Colors.transparent,
+    statusBarColor: Colors.transparent,
+    systemNavigationBarColor: Colors.black12, // Provides visibility to the nav bar area
   ));
   runApp(const MyApp());
 }
@@ -42,11 +47,18 @@ class MaterialAppWithTheme extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final themeProvider = context.watch<ThemeProvider>();
-
+    
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: themeProvider.value,
       home: const AuthWrapper(),
+      // Fix for "Zoomed in" look: Prevents system font scaling from breaking layout
+      builder: (context, child) {
+        return MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: const TextScaler.linear(1.0)),
+          child: child!,
+        );
+      },
     );
   }
 }
@@ -65,6 +77,28 @@ class _AuthWrapperState extends State<AuthWrapper>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     print('[AppInit] AuthWrapper initialized');
+    _initializeAndNavigate();
+  }
+
+  Future<void> _initializeAndNavigate() async {
+    // Request microphone permission at startup so the user is prompted immediately
+    final status = await Permission.microphone.request();
+    
+    if (!mounted) return;
+    
+    if (status.isDenied) {
+      print('[Auth] Microphone permission denied. Translation will not work.');
+    }
+
+    // Pre-load TFLite model to avoid lag on the first translation
+    // This ensures the native interpreter is warm and ready.
+    try {
+      final tflite = TfliteService();
+      await tflite.loadModel();
+    } catch (e) {
+      print('[AppInit] Failed to pre-load model: $e');
+    }
+
     _navigateHome();
   }
 
@@ -84,16 +118,28 @@ class _AuthWrapperState extends State<AuthWrapper>
     await Future.delayed(const Duration(seconds: 3));
     if (!mounted) return;
 
-    final prefs = await SharedPreferences.getInstance();
-    final bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
+    const storage = FlutterSecureStorage();
+    final String? userId = await storage.read(key: 'userId');
+    final String? email = await storage.read(key: 'userEmail');
+    final String? name = await storage.read(key: 'userName');
 
-    if (isLoggedIn) {
-        Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (context) => const Home()));
-    } else {
-      print('[Auth] No session found. Navigating to Login...');
-      // Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (context) => const LoginScreen()));
+    if (!mounted) return;
+
+    if (userId != null && email != null) {
+      print('[Auth] Secure session found. Auto-logging in user: $userId');
+      User.login(User(
+        userId: userId,
+        name: name ?? email,
+        email: email,
+        regDate: null,
+      ));
     }
+
+    if (!mounted) return;
+    // Always navigate to Home; the Home widget handles whether to show 
+    // the login form or the profile based on User.isLoggedIn.
+    Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const Home()));
   }
 
   @override

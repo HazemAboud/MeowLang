@@ -5,7 +5,18 @@ import 'dart:math' as math;
 import 'package:tflite_flutter/tflite_flutter.dart';
 import 'package:image/image.dart' as img_lib;
 
-class LiteRTService {
+class TfliteService {
+  // Singleton instance
+  static final TfliteService _instance = TfliteService._internal();
+
+  // Factory constructor to return the singleton instance
+  factory TfliteService() {
+    return _instance;
+  }
+
+  // Private constructor for the singleton
+  TfliteService._internal();
+
   Interpreter? _interpreter;
   bool _isModelLoaded = false;
 
@@ -23,13 +34,13 @@ class LiteRTService {
       final options = InterpreterOptions()..threads = 4;
 
       _interpreter = await Interpreter.fromAsset(
-        'models/deployed/model.tflite',
+        'assets/models/deployed/model.tflite',
         options: options,
       );
       _isModelLoaded = true;
-      log('LiteRT model loaded successfully.');
+      log('TFLite model loaded successfully.');
     } catch (e) {
-      log('Failed to load LiteRT model: $e');
+      log('Failed to load TFLite model: $e');
       _isModelLoaded = false;
     }
   }
@@ -38,7 +49,7 @@ class LiteRTService {
 
   Future<Map<String, dynamic>> runInference(String imagePath) async {
     if (!_isModelLoaded || _interpreter == null) {
-      log('LiteRT Model not loaded. Cannot run inference.');
+      log('TFLite Model not loaded. Cannot run inference.');
       return {'label': 'Error', 'confidence': 0.0};
     }
 
@@ -49,6 +60,7 @@ class LiteRTService {
       final int height = shape[1];
       final int width = shape[2];
       final int channels = shape[3];
+      log('Model input shape: $shape');
 
       // 1. Load and decode the image from the saved spectrogram file
       final bytes = await File(imagePath).readAsBytes();
@@ -79,9 +91,13 @@ class LiteRTService {
           }
         }
       }
+      // Log min/max values of the input buffer after normalization
+      final double minVal = inputBuffer.reduce(math.min);
+      final double maxVal = inputBuffer.reduce(math.max);
+      log('Input buffer min: $minVal, max: $maxVal');
       final input = inputBuffer.reshape(shape);
 
-      // Use Float32List for the output buffer for better performance with LiteRT
+      // Use Float32List for the output buffer for better performance with TFLite
       final output = Float32List(_classLabels.length).reshape([1, _classLabels.length]);
 
       _interpreter!.run(input, output);
@@ -105,7 +121,7 @@ class LiteRTService {
 
     return {'label': _classLabels[maxIdx], 'confidence': maxProb, 'index': maxIdx};
     } catch (e) {
-      log('Error during LiteRT inference: $e');
+      log('Error during TFLite inference: $e');
       return {'label': 'Error', 'confidence': 0.0};
     }
   }

@@ -1,23 +1,25 @@
-# Meow Lang
+# 🐱 MeowLang
 
-Meow Lang is a mobile application that translates cat sounds. By leveraging AI-powered audio processing and machine learning, the app classifies cat meows into emotions.
+Meow Lang is a mobile application that translates cat vocalizations by classifying the sounds into 5 categories, angry, food, resting, mother call and isolation.
+## Detailed Data Cleaning and Model Development Process
 
 ## 🐾 Features
+*   **Cat vocals classification**: Performed using a spectrogram of the audio generated using a custom dart script as input to a CNN model which classifies the image into one of five categories (angry, food, resting, mother call and isolation).
+*   **Database**: Firestore for saving user and cat profiles, translation records, history and translation corrections.
+*   **Mobile Application**: A lightweight android application with a clean interface.
+*   **User Profile Management**: Users can create an account using email and password, auto login is performed by default using flutter_secure_storage after the first login.
+*   **Cat Profile Management**: Users can create and manage their cat profiles saving the cat's name, image, breed and age.
+*   **Translation**: Capture the sound of the cat and display humanized text based on the model's output. E.g. "Mama, are you there?" (motherCall)
+*   **History and Analytics**: Displays translation history and a break down of translation categories for each cat
+*   **Misclassification**: Users can assign a new label to misclassified audios, the new label along with the spectrogram and the data of the original translation are saved in the database to be used in fine tuning the model.
+*   **Performance logging**: Logs time taken for the translation process and database operations to the `query_performance` collection in Firestore for performance monitoring.
 
-*   **AI Translation Engine**: Converts `.wav` audio recordings of cat meows into mel-spectrograms and uses a TFLite model to predict the cat's intent (e.g., "I am feeling hungry").
-*   **Cat Profile Management**: Add, edit, and manage multiple cats with details including breed, age, gender, and profile photos.
-*   **Translation History**: Keeps a detailed record of every translation, including the date, predicted emotion, and the generated spectrogram image.
-*   **Analytics & Insights**: Visualize your cat's communication patterns through interactive pie charts showing the frequency of different translated "labels."
-*   **Cloud Synchronization**: Powered by Firebase Firestore for real-time data sync across devices, including manual user authentication and performance logging.
+## 🛠️ Tech Stack
 
-## 🚀 Tech Stack
+*   **Frontend**: Flutter
+*   **Backend**: Firebase and on device inference usign `tflite_service`
+*   **Machine Learning**: Pytorch for initial versions and Tensorflow for the final setup.
+*   **Audio Processing**: Using a custom dart script to generate spectrograms from audio files.
 
-*   **Frontend**: Flutter (Dart)
-*   **State Management**: Provider
-*   **Backend**: Firebase (Firestore & Core)
-*   **Machine Learning**: TFLite for on-device inference.
-*   **Audio Processing**: `audio_2_spectrogram` for generating visual representations of meows.
-*   **Data Visualization**: fl_chart for analytics.
+## Video Presentation
 
-## 📈 Performance Monitoring
-The app includes a built-in performance logging helper within `FirebaseService` that records query execution times to the `query_performance` which is then displayed in the admin dashboard for monitoring and optimization.

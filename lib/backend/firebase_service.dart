@@ -7,29 +7,29 @@ import '../models/cat.dart';
 import '../models/historyRecord.dart';
 import '../models/translation.dart';
 
-/// Service class to handle all Firebase database operations using manual login logic.
+// handles firebase operations
 class FirebaseService {
-  // Using the "meowlang" Firestore database instance configured in firebase.json
+  // firestore instance
   final FirebaseFirestore _db = FirebaseFirestore.instanceFor(
     app: Firebase.app(),
     databaseId: 'meowlang',
   );
 
   final Random _random = Random();
-
-  /// Generates a unique numeric ID as a string.
+  
+  // generates a unique numeric id
   String _generateNumericId() {
-    // Combine microseconds since epoch with 3 random digits for high collision resistance
+    // combines timestamp with random digits
     return '${DateTime.now().microsecondsSinceEpoch}${_random.nextInt(90000) + 10000}';
   }
-
-  /// Exposes the collection method from the underlying Firestore instance.
+  
+  // exposes firestore collection method
   CollectionReference<Map<String, dynamic>> collection(String path) {
     return _db.collection(path);
   }
-
-  // Performance Logging Helper (Consistent with original Python implementation)
-  Future<void> _logPerformance(String endpoint, String queryName, double timeMs) async {
+  
+  // performance logging helper
+  Future<void> logPerformance(String endpoint, String queryName, double timeMs) async { // Changed to public
     try {
       final id = _generateNumericId();
       await _db.collection('query_performance').doc(id).set({
@@ -43,13 +43,13 @@ class FirebaseService {
     }
   }
 
-  // --- Auth Logic ---
-
-  /// Performs a manual login by checking the users collection for matching credentials.
+  // auth logic
+  
+  // performs manual login
   Future<Map<String, dynamic>?> login(String identifier, String password) async {
     final stopwatch = Stopwatch()..start();
-
-    // Try login by email OR by name
+    
+    // login by email or name
     final field = identifier.contains('@') ? 'email' : 'name';
     
     final query = await _db.collection('users')
@@ -58,24 +58,24 @@ class FirebaseService {
         .limit(1)
         .get();
 
-    _logPerformance('/login', 'manual_auth_query', stopwatch.elapsedMilliseconds.toDouble());
+    logPerformance('/login', 'manual_auth_query', stopwatch.elapsedMilliseconds.toDouble());
 
     if (query.docs.isNotEmpty) {
       final userData = query.docs.first.data();
-      userData['uid'] = query.docs.first.id; // Map document ID to uid for consistency
+      userData['uid'] = query.docs.first.id; // maps document id to uid
       return userData;
     }
     return null;
   }
-
-  /// Manually registers a user by creating a document in the users collection.
+  
+  // registers a user
   Future<Map<String, dynamic>?> register(String name, String email, String password) async {
     final stopwatch = Stopwatch()..start();
     
-    // Check if user already exists
+    // checks if user exists
     final existing = await _db.collection('users').where('email', isEqualTo: email).limit(1).get();
     if (existing.docs.isNotEmpty) throw Exception("User with this email already exists");
-
+    
     final newUser = {
       'name': name,
       'email': email,
@@ -87,16 +87,14 @@ class FirebaseService {
     final docRef = _db.collection('users').doc(id);
     await docRef.set(newUser);
     
-    _logPerformance('/register', 'insert_user', stopwatch.elapsedMilliseconds.toDouble());
+    logPerformance('/register', 'insert_user', stopwatch.elapsedMilliseconds.toDouble());
     newUser['uid'] = id;
     return newUser;
   }
 
-  // --- Cat CRUD ---
-
-  /// Returns a real-time stream of cats owned by the user.
-  /// Use this with a StreamBuilder in your UI to update automatically.
-  /// Errors are propagated to the StreamBuilder for UI handling.
+  // cat crud
+  
+  // returns a stream of user's cats
   Stream<List<Cat>> streamCats(String userId) {
     return _db
         .collection('cats')
@@ -108,21 +106,24 @@ class FirebaseService {
           } catch (e) {
             debugPrint('[streamCats] Error mapping snapshot: $e');
             rethrow;
-          }
+          } // errors propagated to streambuilder
         })
         .handleError((error) {
           debugPrint('[streamCats] Stream error for userId $userId: $error');
-          // Don't suppress the error - let it propagate to StreamBuilder
+          // use with streambuilder
           throw error;
         });
   }
-
-  /// Retrieves a list of cats owned by the user (non-streaming).
+  
+  // retrieves list of user's cats
   Future<List<Cat>> getCats(String userId) async {
+    final stopwatch = Stopwatch()..start();
     final snapshot = await _db
         .collection('cats')
         .where('userId', isEqualTo: userId)
         .get();
+    
+    logPerformance('/cats', 'get_cats_list', stopwatch.elapsedMilliseconds.toDouble());
     return snapshot.docs.map((doc) => Cat.fromFirestore(doc)).toList();
   }
 
@@ -133,24 +134,24 @@ class FirebaseService {
     await docRef.set(cat.toJson());
     final newDoc = await docRef.get();
     
-    _logPerformance('/cats', 'insert_cat', stopwatch.elapsedMilliseconds.toDouble());
+    logPerformance('/cats', 'insert_cat', stopwatch.elapsedMilliseconds.toDouble());
     return Cat.fromFirestore(newDoc);
   }
 
   Future<void> updateCat(String catId, Map<String, dynamic> data) async {
     final stopwatch = Stopwatch()..start();
     await _db.collection('cats').doc(catId).update(data);
-    _logPerformance('/cats/$catId', 'update_cat', stopwatch.elapsedMilliseconds.toDouble());
+    logPerformance('/cats/$catId', 'update_cat', stopwatch.elapsedMilliseconds.toDouble());
   }
 
-  /// Verifies that the update was actually applied to Firestore
+  // verifies cat update
   Future<bool> verifyCatUpdate(String catId, Map<String, dynamic> expectedData) async {
     try {
       final updatedDoc = await _db.collection('cats').doc(catId).get();
       if (!updatedDoc.exists) return false;
       
       final docData = updatedDoc.data() ?? {};
-      // Verify that at least the key fields match
+      // verifies key fields match
       for (final key in expectedData.keys) {
         if (docData[key] != expectedData[key]) {
           return false;
@@ -166,14 +167,13 @@ class FirebaseService {
   Future<void> deleteCat(String catId) async {
     final stopwatch = Stopwatch()..start();
     await _db.collection('cats').doc(catId).delete();
-    _logPerformance('/cats/$catId', 'delete_cat', stopwatch.elapsedMilliseconds.toDouble());
+    logPerformance('/cats/$catId', 'delete_cat', stopwatch.elapsedMilliseconds.toDouble());
   }
 
-  /// Verifies that the deletion was actually applied to Firestore
   Future<bool> verifyCatDeletion(String catId) async {
     try {
       final doc = await _db.collection('cats').doc(catId).get();
-      return !doc.exists; // Should not exist if deletion was successful
+      return !doc.exists;
     } catch (e) {
       debugPrint('Error verifying cat deletion: $e');
       return false;
@@ -181,7 +181,6 @@ class FirebaseService {
   }
 
   // --- History & Translations ---
-
   Future<List<HistoryRecord>> getHistoryForCat(String catId) async {
     final stopwatch = Stopwatch()..start();
     final snapshot = await _db
@@ -190,55 +189,51 @@ class FirebaseService {
         .orderBy('hist_time', descending: true)
         .get();
     
-    _logPerformance('/history/$catId', 'get_cat_history', stopwatch.elapsedMilliseconds.toDouble());
+    logPerformance('/history/$catId', 'get_cat_history', stopwatch.elapsedMilliseconds.toDouble());
     return snapshot.docs.map((doc) => HistoryRecord.fromFirestore(doc)).toList();
   }
 
   Future<List<HistoryRecord>> getHistoryForUser(String userId) async {
     final stopwatch = Stopwatch()..start();
     
-    // 1. Get IDs of all cats owned by the user
+    // gets ids of user's cats
     final catSnap = await _db.collection('cats').where('userId', isEqualTo: userId).get();
     final catIds = catSnap.docs.map((d) => d.id).toList();
-
-    // If the user has no cats, they cannot have history records.
-    // Firestore 'whereIn' will throw an error if the list is empty.
+    
+    // no history if no cats
     if (catIds.isEmpty) return [];
 
-    // 2. Fetch history where catId is in the user's cat list
     final histSnap = await _db
         .collection('history')
         .where('catId', whereIn: catIds)
         .orderBy('hist_time', descending: true)
         .get();
 
-    _logPerformance('/history/user/$userId', 'get_user_history_by_cat_ids', stopwatch.elapsedMilliseconds.toDouble());
+    logPerformance('/history/user/$userId', 'get_user_history_by_cat_ids', stopwatch.elapsedMilliseconds.toDouble());
     return histSnap.docs.map((doc) => HistoryRecord.fromFirestore(doc)).toList();
   }
 
   Future<void> saveHistory(HistoryRecord history, {String? catName, String? imgPath, required String userId}) async {
     final stopwatch = Stopwatch()..start();
     final data = history.toJson();
-    // Denormalize data for easy display in lists
-    data['userId'] = userId; // Add userId to history record
+    // denormalizes data
+    data['userId'] = userId;
     if (catName != null) data['catName'] = catName;
     if (imgPath != null) data['imgPath'] = imgPath;
     
-    final id = _generateNumericId();
-    await _db.collection('history').doc(id).set(data);
-    _logPerformance('/history', 'insert_history', stopwatch.elapsedMilliseconds.toDouble());
+    final histId = _generateNumericId();
+    await _db.collection('history').doc(histId).set(data);
+    logPerformance('/history', 'insert_history', stopwatch.elapsedMilliseconds.toDouble());
   }
 
-  /// Streams the translation count for a specific user.
   Stream<int> streamUserTranslationCount(String userId) {
     return _db
         .collection('history')
         .where('userId', isEqualTo: userId)
         .snapshots()
         .map((snapshot) => snapshot.docs.length);
-  }
+  } 
 
-  /// Streams the correction count for a specific user.
   Stream<int> streamUserCorrectionCount(String userId) {
     return _db
         .collection('corrections')
@@ -251,16 +246,14 @@ class FirebaseService {
     final stopwatch = Stopwatch()..start();
     final id = _generateNumericId();
     await _db.collection('translations').doc(id).set(translation.toJson());
-    _logPerformance('/convert', 'insert_translation', stopwatch.elapsedMilliseconds.toDouble());
+    logPerformance('/convert', 'insert_translation', stopwatch.elapsedMilliseconds.toDouble());
     return id;
   }
 
-  // --- Stats & Feedback ---
-
   Future<Map<String, int>> getUserStats(String userId) async {
     final stopwatch = Stopwatch()..start();
-
-    // Get Translation count across all user's cats
+    
+    // gets translation count for user's cats
     final catsSnap = await _db.collection('cats').where('userId', isEqualTo: userId).get();
     final catIds = catsSnap.docs.map((d) => d.id).toList();
     
@@ -273,8 +266,8 @@ class FirebaseService {
           .get();
       translationsCount = transCountQuery.count ?? 0;
     }
-
-    // Get Correction count for this user
+    
+    // gets correction count for user
     final corrCountQuery = await _db
         .collection('corrections')
         .where('user_id', isEqualTo: userId)
@@ -282,30 +275,29 @@ class FirebaseService {
         .get();
     int correctionsCount = corrCountQuery.count ?? 0;
 
-    _logPerformance('/users/$userId/stats', 'get_user_stats', stopwatch.elapsedMilliseconds.toDouble());
+    logPerformance('/users/$userId/stats', 'get_user_stats', stopwatch.elapsedMilliseconds.toDouble());
     return {
       "translations": translationsCount,
       "corrections": correctionsCount,
     };
   }
-
+  
   Future<void> saveFeedback({
     required String translationId,
     required String newLabel,
     required String userId,
-    String? catId, // Added to strengthen the relation
+    String? catId,
   }) async {
     final stopwatch = Stopwatch()..start();
-    
     final transDoc = await _db.collection('translations').doc(translationId).get();
     if (!transDoc.exists) throw Exception("Original translation not found");
-
+    
     final translation = Translation.fromFirestore(transDoc);
-
+    
     final id = _generateNumericId();
     await _db.collection('corrections').doc(id).set({
       'translationId': translationId,
-      'image_path': translation.imgPath, // Assumes URL or Storage path
+      'image_path': translation.imgPath,
       'old_label': translation.className,
       'old_conf': translation.confidence,
       'new_label': newLabel,
@@ -314,6 +306,6 @@ class FirebaseService {
       'timestamp': FieldValue.serverTimestamp(),
     });
 
-    _logPerformance('/feedback', 'insert_correction', stopwatch.elapsedMilliseconds.toDouble());
+    logPerformance('/feedback', 'insert_correction', stopwatch.elapsedMilliseconds.toDouble());
   }
 }

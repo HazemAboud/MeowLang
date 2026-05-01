@@ -4,6 +4,7 @@ import 'package:meow_lang/backend/firebase_service.dart';
 import '../models/user.dart';
 import '../snackbar_helper.dart';
 import '../models/cat.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class ProfileMenu extends StatefulWidget {
   const ProfileMenu({super.key});
@@ -79,6 +80,11 @@ class _LoginWidgetState extends State<_LoginWidget> {
     try {
       final userCred = await _firebase.login(email, password);
       if (userCred != null) {
+        const storage = FlutterSecureStorage();
+        await storage.write(key: 'userId', value: userCred['uid']);
+        await storage.write(key: 'userEmail', value: userCred['email']);
+        await storage.write(key: 'userName', value: userCred['name'] ?? userCred['email']);
+
         User.login(User(
           userId: userCred['uid'],
           name: userCred['name'] ?? userCred['email'],
@@ -229,6 +235,11 @@ class _RegisterWidgetState extends State<_RegisterWidget> {
     try {
       final authUser = await _firebase.register(name, email, password);
       if (authUser != null) {
+        const storage = FlutterSecureStorage();
+        await storage.write(key: 'userId', value: authUser['uid']);
+        await storage.write(key: 'userEmail', value: email);
+        await storage.write(key: 'userName', value: name);
+
         User.login(User(
           userId: authUser['uid'],
           name: name,
@@ -411,6 +422,9 @@ class _UserProfileViewState extends State<_UserProfileView> {
     if (confirm != true || !mounted) {
       return;
     }
+
+    const storage = FlutterSecureStorage();
+    await storage.deleteAll();
 
     User.logout();
     widget.onLogout();

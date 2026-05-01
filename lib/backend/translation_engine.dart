@@ -1,17 +1,52 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'package:audio_2_spectrogram/audio_spectrogram.dart';
+import 'package:meow_lang/backend/audio_spectrogram.dart';
+import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:meow_lang/backend/firebase_service.dart';
 import 'package:meow_lang/models/historyRecord.dart';
 import 'package:meow_lang/models/translation.dart';
 import 'package:meow_lang/backend/tflite_service.dart';
 import 'package:meow_lang/models/user.dart' as app_user;
 import 'package:path/path.dart' as p;
+import 'package:image/image.dart' as img_lib;
+
+/// Helper for offloading spectrogram generation to an isolate.
+// helper for spectrogram generation
+Future<void> _generateSpectrogramIsolate(Map<String, dynamic> args) async {
+  await saveSpectrogramPng(
+    args['wavPath'] as String,
+    args['imagePath'] as String,
+    sampleRate: args['sampleRate'] as int,
+    nMels: args['nMels'] as int,
+    nFft: args['nFft'] as int,
+    hopLength: args['hopLength'] as int,
+  );
+}
+// helper for image processing
+/// must be top-level for compute
+/// This must be a top-level function to be used with [compute].
+Future<void> _processSpectrogramImage(String imagePath) async {
+  final imageFile = File(imagePath);
+  if (!await imageFile.exists()) return;
+
+  final bytes = await imageFile.readAsBytes();
+  final img_lib.Image? image = img_lib.decodePng(bytes);
+  
+  if (image != null && image.width > 0 && image.height > 0) {
+    // The model is trained on images with margins and axes, so the cropping step is removed.
+    // model trained on images with margins
+    // resizing improves performance
+    final img_lib.Image resized = img_lib.copyResize(image, width: 512, height: 512);
+    // overwrites file with resized version
+    await imageFile.writeAsBytes(img_lib.encodePng(resized), flush: true);
+  }
+}
 
 class TranslationEngine {
   final FirebaseService _db = FirebaseService();
-  final LiteRTService _tfliteService = LiteRTService();
+  final TfliteService _tfliteService = TfliteService();
   final Random _random = Random();
 
   final Map<String, List<String>> _classMessages = {
@@ -38,7 +73,7 @@ class TranslationEngine {
     ],
     'motherCall': [
       "MAMA, MAMA, MAMA!",
-      "I need smy mom",
+      "I need my mom",
       "Where's my mom?",
       "I am looking for my mom",
       "Mama, are you there?"
@@ -54,58 +89,121 @@ class TranslationEngine {
 
   TranslationEngine();
 
-  Future<Map<String, dynamic>> processMeow(String wavPath, String catId, String catName) async {
-    // Ensure the model is loaded before processing. 
-    // If not loaded, attempt to load it now to avoid returning "Offline".
+  Future<Map<String, dynamic>> processMeow(String wavPath, String catId, String catName, {void Function(String)? onStatusUpdate}) async {
+    final stopwatch = Stopwatch()..start(); // starts stopwatch for logging
+    // ensures model is loaded
+    // loads model if not already
     if (!_tfliteService.isModelLoaded) {
       try {
+        onStatusUpdate?.call("Loading AI model...");
         await _tfliteService.loadModel();
+        print('[Engine] TFLite model loaded on-demand.'); 
         if (!_tfliteService.isModelLoaded) {
           throw Exception('Model reported as not loaded after initialization.');
         }
       } catch (e) {
-        print('LiteRT model failed to load: $e');
+        print('TFLite model failed to load: $e');
         return {'label': 'Error', 'text': 'Translation service unavailable', 'confidence': 0.0};
       }
     }
+    
+    // verifies audio exists
+    // recorder flush delay on some phones
+    final wavFile = File(wavPath);
+    onStatusUpdate?.call("Verifying audio...");
+    print('[Engine] Checking for audio at: $wavPath');
+    int audioRetry = 0;
+    while (audioRetry < 5 && (!await wavFile.exists() || await wavFile.length() == 0)) {
+      await Future.delayed(const Duration(milliseconds: 300));
+      audioRetry++;
+    }
 
-    // 1. Generate the visual spectrogram image.
-    // The AI model now processes the image file directly to match the 
-    // preprocessing logic (resize and normalization) used during training.
+    if (!await wavFile.exists() || await wavFile.length() == 0) {
+      return {'label': 'Error', 'text': 'Audio file not found', 'confidence': 0.0};
+    }
+
+    // generates spectrogram image
+    // uses direct path on mobile
+    // avoids sandbox-restricted directories
     final String imagePath = p.setExtension(wavPath, '.png');
-    await saveSpectrogramPng(wavPath, imagePath);
+    
+    try {
+      // ensures directory exists
+      final directory = Directory(p.dirname(imagePath));
+      if (!await directory.exists()) {
+        await directory.create(recursive: true);
+      }
+
+      // 1.1 Generate the visual spectrogram image.
+      onStatusUpdate?.call("Generating spectrogram...");
+      await compute(_generateSpectrogramIsolate, {
+        'wavPath': wavPath,
+        'imagePath': imagePath,
+        'sampleRate': 22050,
+        'nMels': 128,
+        'nFft': 2048,
+        'hopLength': 512,
+      });
+
+      int imgRetry = 0;
+      // ensures image is written
+      while (imgRetry < 15 && (!await File(imagePath).exists() || await File(imagePath).length() == 0)) {
+        await Future.delayed(const Duration(milliseconds: 200));
+        imgRetry++;
+      }
+
+      if (!await File(imagePath).exists()) {
+        throw Exception('Spectrogram file was not created or is empty.');
+      }
+      
+      // crops and resaves spectrogram
+      try {
+        onStatusUpdate?.call("Optimizing image...");
+        print('[Engine] Processing spectrogram isolate...');
+        await compute(_processSpectrogramImage, imagePath);
+      } catch (cropError) {
+        print('Warning: Spectrogram cropping failed (using original): $cropError');
+      }
+    } catch (e) {
+      // Log full stack trace for spectrogram issues
+      print('Spectrogram Generation Critical Error: $e');
+      debugPrintStack();
+      return {'label': 'Error', 'text': 'Visualizing meow failed...', 'confidence': 0.0};
+    }
 
     final String imageName = p.basename(imagePath);
 
-    // 2. Run Inference. The image is resized and normalized inside the service.
     Map<String, dynamic> result;
+    // runs inference
     try {
+      onStatusUpdate?.call("Running inference...");
       result = await _tfliteService.runInference(imagePath);
     } catch (e) {
-      print('Inference failed: $e');
+      print('Inference Error: $e');
       return {'label': 'Error', 'text': 'Failed to process audio', 'confidence': 0.0};
     }
 
-    // Confidence calculation matching Python (Probability * 100)
+    // confidence calculation
     final double confidence = (result['confidence'] ?? 0.0) * 100;
     final String prediction = result['label'] ?? 'Unknown';
 
-    // Pick a random message for the detected class
+    // picks random message
     final options = _classMessages[prediction] ?? ["I am feeling $prediction"];
     final String randomText = options[_random.nextInt(options.length)];
 
-    // Use the current logged-in user's ID directly. 
-    // This allows meows to be saved even if the cat is 'unassigned'.
+    // uses current user's id
+    // allows saving meows without assigned cat
     final catUserId = app_user.User.currentUser?.userId;
     String? transId;
-
+    // saves to firebase if user logged in
     if (catUserId != null) {
       // 4. Save to Firebase only if user is logged in
+      onStatusUpdate?.call("Saving to cloud...");
       final translation = Translation(
         audioPath: wavPath,
         imgPath: imageName, // Save filename instead of absolute path
         className: prediction,
-        confidence: confidence,
+        confidence: confidence, // saves filename
         dateTime: DateTime.now(),
       );
 
@@ -120,6 +218,8 @@ class TranslationEngine {
 
       await _db.saveHistory(history, catName: catName, userId: catUserId);
     }
+    stopwatch.stop();
+    await _db.logPerformance('/processMeow', 'full_translation_pipeline', stopwatch.elapsedMilliseconds.toDouble());
     
     return {
       'label': prediction,
@@ -130,14 +230,15 @@ class TranslationEngine {
     };
   }
 
-  /// Submits user feedback (corrections) to the database.
-  /// This replicates the logic from server.py's /feedback endpoint for Firebase.
+  // submits user feedback
+  // replicates server.py feedback logic
   Future<void> submitFeedback({
     required String translationId,
     required String newLabel,
     required String userId,
     String? catId,
   }) async {
+    final stopwatch = Stopwatch()..start(); // fetches original translation
     // 1. Fetch original translation to capture 'old' state
     final transDoc = await _db.collection('translations').doc(translationId).get();
     
@@ -146,14 +247,16 @@ class TranslationEngine {
     }
 
     final data = transDoc.data()!;
-
-    // Read the actual image file and convert to Base64 to save the image itself
+    
+    // reads image file and converts to base64
     String? base64Image;
     try {
-      final String audioPath = data['audioPath'] ?? '';
-      final String imageName = data['imgPath'] ?? '';
+      final String imageName = data['imgPath'] ?? ''; // reconstructs full path
+      final directory = await getApplicationDocumentsDirectory();
+      
       // Reconstruct the full path based on the directory of the original audio
-      final String fullPath = p.join(p.dirname(audioPath), imageName);
+      final String fullPath = p.join(directory.path, p.basename(imageName));
+      print("DEBUG: Attempting to read spectrogram for feedback from: $fullPath");
       final file = File(fullPath);
       
       if (await file.exists()) {
@@ -165,8 +268,8 @@ class TranslationEngine {
     } catch (e) {
       print("DEBUG: Failed to encode image for feedback (ID: $translationId): $e");
     }
-
-    // 2. Save the correction to the 'corrections' collection
+    
+    // saves correction to corrections collection
     await _db.collection('corrections').add({
       'translationId': translationId,
       'userId': userId,
@@ -178,6 +281,8 @@ class TranslationEngine {
       'imageData': base64Image, // Saving the actual binary data (Base64)
       'timestamp': DateTime.now(),
     });
+
+    await _db.logPerformance('/feedback', 'submit_feedback_pipeline', stopwatch.elapsedMilliseconds.toDouble());
   }
 
   void dispose() {
