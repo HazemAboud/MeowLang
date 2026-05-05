@@ -2,7 +2,7 @@
 
 Meow Lang is a mobile application that translates cat vocalizations by classifying the sounds into 5 categories, angry, food, resting, mother call and isolation.
 ## Detailed Data Cleaning and Model Development Process
-
+https://github.com/HazemAboud/MeowLang-AI
 ## 🐾 Features
 *   **Cat vocals classification**: Performed using a spectrogram of the audio generated using a custom dart script as input to a CNN model which classifies the image into one of five categories (angry, food, resting, mother call and isolation).
 *   **Database**: Firestore for saving user and cat profiles, translation records, history and translation corrections.
