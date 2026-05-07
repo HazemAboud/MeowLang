@@ -12,7 +12,7 @@ https://github.com/HazemAboud/MeowLang-AI
 *   **Translation**: Capture the sound of the cat and display humanized text based on the model's output. E.g. "Mama, are you there?" (motherCall)
 *   **History and Analytics**: Displays translation history and a break down of translation categories for each cat
 *   **Misclassification**: Users can assign a new label to misclassified audios, the new label along with the spectrogram and the data of the original translation are saved in the database to be used in fine tuning the model.
-*   **Performance logging**: Logs time taken for the translation process and database operations to the `query_performance` collection in Firestore for performance monitoring.
+*   **Performance logging**: Logs time taken for the translation process and the user's device to monitor performance.
 
 ## 🛠️ Tech Stack
 
