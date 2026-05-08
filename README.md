@@ -1,8 +1,8 @@
 # 🐱 MeowLang
 
-MeowLang is a mobile application that translates cat vocalizations by classifying the sounds into 5 categories, angry, food, resting, mother call and isolation.
+Meow Lang is a mobile application that translates cat vocalizations by classifying the sounds into 5 categories, angry, food, resting, mother call and isolation.
 ## Detailed Data Cleaning and Model Development Process
-https://github.com/HazemAboud/MeowLang-AI
+
 ## 🐾 Features
 *   **Cat vocals classification**: Performed using a spectrogram of the audio generated using a custom dart script as input to a CNN model which classifies the image into one of five categories (angry, food, resting, mother call and isolation).
 *   **Database**: Firestore for saving user and cat profiles, translation records, history and translation corrections.
@@ -12,7 +12,7 @@ https://github.com/HazemAboud/MeowLang-AI
 *   **Translation**: Capture the sound of the cat and display humanized text based on the model's output. E.g. "Mama, are you there?" (motherCall)
 *   **History and Analytics**: Displays translation history and a break down of translation categories for each cat
 *   **Misclassification**: Users can assign a new label to misclassified audios, the new label along with the spectrogram and the data of the original translation are saved in the database to be used in fine tuning the model.
-*   **Performance logging**: Logs time taken for the translation process and the user's device to monitor performance.
+*   **Performance logging**: Logs time taken for the translation process and database operations to the `query_performance` collection in Firestore for performance monitoring.
 
 ## 🛠️ Tech Stack
 
@@ -21,5 +21,8 @@ https://github.com/HazemAboud/MeowLang-AI
 *   **Machine Learning**: Pytorch for initial versions and Tensorflow for the final setup.
 *   **Audio Processing**: Using a custom dart script to generate spectrograms from audio files.
 
-## Video Presentation
+## Demo
 
+https://youtu.be/MR7hY1BMJPM
+
+**Database**
