@@ -26,3 +26,7 @@ Meow Lang is a mobile application that translates cat vocalizations by classifyi
 https://youtu.be/MR7hY1BMJPM
 
 **Database**
+<img width="1602" height="751" alt="image" src="https://github.com/user-attachments/assets/7eebb28e-08bb-4677-b87f-8f412424259c" />
+
+
+<img width="1590" height="737" alt="image" src="https://github.com/user-attachments/assets/d222d33a-5ec8-49ed-9a26-29f291654c96" />
