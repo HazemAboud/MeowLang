@@ -265,9 +265,9 @@ class FirebaseService {
   }) async {
     final transDoc = await _db.collection('translations').doc(translationId).get();
     if (!transDoc.exists) throw Exception("Original translation not found");
-    
+
     final translation = Translation.fromFirestore(transDoc);
-    
+
     final id = _generateNumericId();
     await _db.collection('corrections').doc(id).set({
       'translationId': translationId,

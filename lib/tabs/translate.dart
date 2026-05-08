@@ -103,7 +103,7 @@ class _TranslateMenuState extends State<TranslateMenu> {
     }
 
     try {
-      await _engine.submitFeedback(
+      await _firebase.saveFeedback(
         translationId: _lastTranslationId!,
         newLabel: newLabel,
         userId: user.userId.toString(),

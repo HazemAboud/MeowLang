@@ -1,9 +1,7 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'package:meow_lang/backend/audio_spectrogram.dart';
 import 'package:flutter/foundation.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:meow_lang/backend/firebase_service.dart';
 import 'package:meow_lang/models/historyRecord.dart';
 import 'package:meow_lang/models/translation.dart';
@@ -243,58 +241,6 @@ class TranslationEngine {
       'imgPath': imagePath,
       'id': transId
     };
-  }
-
-  // submits user feedback
-  // replicates server.py feedback logic
-  Future<void> submitFeedback({
-    required String translationId,
-    required String newLabel,
-    required String userId,
-    String? catId,
-  }) async {
-    // 1. Fetch original translation to capture 'old' state
-    final transDoc = await _db.collection('translations').doc(translationId).get();
-    
-    if (!transDoc.exists) {
-      throw Exception("Cannot submit feedback: Original translation $translationId not found.");
-    }
-
-    final data = transDoc.data()!;
-    
-    // reads image file and converts to base64
-    String? base64Image;
-    try {
-      final String imageName = data['imgPath'] ?? ''; // reconstructs full path
-      final directory = await getApplicationDocumentsDirectory();
-      
-      // Reconstruct the full path based on the directory of the original audio
-      final String fullPath = p.join(directory.path, p.basename(imageName));
-      print("DEBUG: Attempting to read spectrogram for feedback from: $fullPath");
-      final file = File(fullPath);
-      
-      if (await file.exists()) {
-        final bytes = await file.readAsBytes();
-        base64Image = base64.encode(bytes);
-      } else {
-        print("DEBUG: Image path for translation $translationId is no longer accessible: $fullPath");
-      }
-    } catch (e) {
-      print("DEBUG: Failed to encode image for feedback (ID: $translationId): $e");
-    }
-    
-    // saves correction to corrections collection
-    await _db.collection('corrections').add({
-      'translationId': translationId,
-      'userId': userId,
-      'catId': catId,
-      'oldLabel': data['className'],
-      'oldConfidence': data['confidence'],
-      'newLabel': newLabel,
-      'imageName': data['imgPath'],
-      'imageData': base64Image, // Saving the actual binary data (Base64)
-      'timestamp': DateTime.now(),
-    });
   }
 
   void dispose() {
