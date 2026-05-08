@@ -81,7 +81,7 @@ class _AuthWrapperState extends State<AuthWrapper>
   }
 
   Future<void> _initializeAndNavigate() async {
-    // Request microphone permission at startup so the user is prompted immediately
+
     final status = await Permission.microphone.request();
     
     if (!mounted) return;

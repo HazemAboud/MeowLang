@@ -102,7 +102,6 @@ class TfliteService {
 
       _interpreter!.run(input, output);
 
-      // Apply Softmax to convert raw logits to probabilities (matches Python functional.softmax)
       final List<double> logits = List<double>.from(output[0]);
       final double maxLogit = logits.reduce(math.max);
       final List<double> exps = logits.map((l) => math.exp(l - maxLogit)).toList();

@@ -9,6 +9,7 @@ import 'package:meow_lang/models/historyRecord.dart';
 import 'package:meow_lang/models/translation.dart';
 import 'package:meow_lang/backend/tflite_service.dart';
 import 'package:meow_lang/models/user.dart' as app_user;
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:path/path.dart' as p;
 import 'package:image/image.dart' as img_lib;
 
@@ -38,7 +39,11 @@ Future<void> _processSpectrogramImage(String imagePath) async {
     // The model is trained on images with margins and axes, so the cropping step is removed.
     // model trained on images with margins
     // resizing improves performance
-    final img_lib.Image resized = img_lib.copyResize(image, width: 512, height: 512);
+    final img_lib.Image resized = img_lib.copyResize(
+      image, 
+      width: 512, 
+      height: 512,
+      interpolation: img_lib.Interpolation.linear);
     // overwrites file with resized version
     await imageFile.writeAsBytes(img_lib.encodePng(resized), flush: true);
   }
@@ -182,6 +187,18 @@ class TranslationEngine {
       print('Inference Error: $e');
       return {'label': 'Error', 'text': 'Failed to process audio', 'confidence': 0.0};
     }
+    
+    stopwatch.stop();
+
+    // Log AI performance with device info
+    final DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
+    String phoneModel = "Unknown";
+    if (Platform.isAndroid) {
+      phoneModel = (await deviceInfo.androidInfo).model;
+    } else if (Platform.isIOS) {
+      phoneModel = (await deviceInfo.iosInfo).utsname.machine;
+    }
+    await _db.logInferencePerformance(stopwatch.elapsedMilliseconds.toDouble(), phoneModel);
 
     // confidence calculation
     final double confidence = (result['confidence'] ?? 0.0) * 100;
@@ -218,8 +235,6 @@ class TranslationEngine {
 
       await _db.saveHistory(history, catName: catName, userId: catUserId);
     }
-    stopwatch.stop();
-    await _db.logPerformance('/processMeow', 'full_translation_pipeline', stopwatch.elapsedMilliseconds.toDouble());
     
     return {
       'label': prediction,
@@ -238,7 +253,6 @@ class TranslationEngine {
     required String userId,
     String? catId,
   }) async {
-    final stopwatch = Stopwatch()..start(); // fetches original translation
     // 1. Fetch original translation to capture 'old' state
     final transDoc = await _db.collection('translations').doc(translationId).get();
     
@@ -281,8 +295,6 @@ class TranslationEngine {
       'imageData': base64Image, // Saving the actual binary data (Base64)
       'timestamp': DateTime.now(),
     });
-
-    await _db.logPerformance('/feedback', 'submit_feedback_pipeline', stopwatch.elapsedMilliseconds.toDouble());
   }
 
   void dispose() {
